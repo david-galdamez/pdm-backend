@@ -134,8 +134,22 @@ func (r *SubCategoriaRepository) GetSubCategory(id *uint) (*SubCategoriaResponse
 
 	var subCategoria SubCategoriaResponse
 
+	fechaActual := time.Now()
+	mes := int(fechaActual.Month())
+	anio := fechaActual.Year()
+
 	tx := r.DB.Model(models.SubCategoriaEgreso{}).Where("sub_categoria_egresos.id = ?", id).
-		Select("sub_categoria_egresos.categoria_egreso_id AS categoria_id, sub_categoria_egresos.nombre_sub_categoria AS nombre_sub_categoria, sub_categoria_egresos.tipo_presupuesto_id AS tipo_gasto_id, sub_categoria_egresos.presupuesto_mensual AS presupuesto").Scan(&subCategoria)
+		Select(`
+		sub_categoria_egresos.categoria_egreso_id AS categoria_id, 
+		sub_categoria_egresos.nombre_sub_categoria AS nombre_sub_categoria, 
+		sub_categoria_egresos.tipo_presupuesto_id AS tipo_gasto_id, 
+		CASE
+			WHEN sub_categoria_egresos.nombre_sub_categoria = 'Ahorro' THEN meta_mensuals.monto_meta
+			ELSE sub_categoria_egresos.presupuesto_mensual
+		END AS presupuesto
+		`).
+		Joins("LEFT JOIN meta_mensuals ON meta_mensuals.finanzas_id = sub_categoria_egresos.finanzas_id AND meta_mensuals.mes = ? AND meta_mensuals.anio = ?", mes, anio).
+		Scan(&subCategoria)
 
 	if tx.RowsAffected == 0 {
 		return nil, gorm.ErrRecordNotFound

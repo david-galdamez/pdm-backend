@@ -45,7 +45,7 @@ func (h *Handler) Register(c *gin.Context) {
 	err = h.UserRepo.CreateUserAndFinance(&newUser)
 
 	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		if strings.Contains(err.Error(), "unique constraint") {
 			c.JSON(http.StatusConflict, gin.H{"success": false, "message": "El correo electronico ya esta registrado"})
 			return
 		}

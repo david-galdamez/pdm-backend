@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"pdm-backend/models"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -59,6 +60,10 @@ func (r *CategoriaRepository) GetCategoriesData(finanzaId uint, categoriaId *uin
 	var subCategorias []SubCategorias
 	errCh := make(chan error, 2)
 
+	fechaActual := time.Now()
+	mes := int(fechaActual.Month())
+	anio := fechaActual.Year()
+
 	baseQuery := func(tx *gorm.DB) *gorm.DB {
 		q := tx.Where("sub_categoria_egresos.finanzas_id = ?", finanzaId)
 		if categoriaId != nil {
@@ -69,16 +74,29 @@ func (r *CategoriaRepository) GetCategoriesData(finanzaId uint, categoriaId *uin
 
 	go func() {
 		err := baseQuery(r.DB.Model(models.SubCategoriaEgreso{})).
-			Select("COALESCE(SUM(sub_categoria_egresos.presupuesto_mensual), 0) AS presupuesto, COALESCE(SUM(transacciones.monto), 0) AS gasto").
+			Select(`
+			CASE
+				WHEN sub_categoria_egresos.nombre_sub_categoria = 'Ahorro' THEN MAX(meta_mensuals.monto_meta)
+				ELSE COALESCE(SUM(sub_categoria_egresos.presupuesto_mensual),0) 
+			END AS presupuesto,
+			COALESCE(SUM(transacciones.monto), 0) AS gasto`).
+			Joins("LEFT JOIN meta_mensuals ON meta_mensuals.finanzas_id = sub_categoria_egresos.finanzas_id AND meta_mensuals.mes = ? AND meta_mensuals.anio = ?", mes, anio).
 			Joins("LEFT JOIN transacciones on transacciones.sub_categoria_egreso_id = sub_categoria_egresos.id").
-			Scan(&resumen).Error
+			Group("sub_categoria_egresos.id").Scan(&resumen).Error
 		errCh <- err
 	}()
 
 	go func() {
 		err := baseQuery(r.DB.Model(models.SubCategoriaEgreso{})).
-			Select("sub_categoria_egresos.nombre_sub_categoria AS nombre, COALESCE(SUM(sub_categoria_egresos.presupuesto_mensual),0) AS presupuesto , COALESCE(SUM(transacciones.monto),0) AS gasto").
+			Select(`
+			sub_categoria_egresos.nombre_sub_categoria AS nombre, 
+			CASE
+				WHEN sub_categoria_egresos.nombre_sub_categoria = 'Ahorro' THEN MAX(meta_mensuals.monto_meta)
+				ELSE COALESCE(SUM(sub_categoria_egresos.presupuesto_mensual),0) 
+			END AS presupuesto,
+			COALESCE(SUM(transacciones.monto),0) AS gasto`).
 			Joins("LEFT JOIN transacciones ON transacciones.sub_categoria_egreso_id = sub_categoria_egresos.id").
+			Joins("LEFT JOIN meta_mensuals ON meta_mensuals.finanzas_id = sub_categoria_egresos.finanzas_id AND meta_mensuals.mes = ? AND meta_mensuals.anio = ?", mes, anio).
 			Group("sub_categoria_egresos.id").Scan(&subCategorias).Error
 		errCh <- err
 	}()

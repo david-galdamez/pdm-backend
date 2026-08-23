@@ -5,6 +5,7 @@ import (
 	"pdm-backend/repositories"
 	"pdm-backend/services"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,8 +24,8 @@ func (h *AhorroHandler) GetSavingsData(c *gin.Context) {
 	anioString := c.Query("anio")
 
 	anio, err := strconv.Atoi(anioString)
-	if err != nil || anio < 2000 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Año inválido"})
+	if err != nil || anio < 2025 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "El año no puede ser antes del actual"})
 		return
 	}
 
@@ -68,6 +69,19 @@ func (h *AhorroHandler) CreateSavingGoal(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&ahorroRequest); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "El formato de la peticion esta incorrecto"})
+		return
+	}
+
+	fechaActual := time.Now()
+	mesActual := int(fechaActual.Month())
+
+	if ahorroRequest.Mes < mesActual {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "El mes no puede ser antes del actual"})
+		return
+	}
+
+	if ahorroRequest.Mes < 1 || ahorroRequest.Mes > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Inserta un mes valido"})
 		return
 	}
 

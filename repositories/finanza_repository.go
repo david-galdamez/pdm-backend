@@ -38,7 +38,7 @@ func (r *FinanzaRepository) GetFinanceSummary(finanzaId uint, inicio, final time
 	var resumen Resumen
 	err := r.DB.Model(&models.Transacciones{}).
 		Select("SUM(CASE WHEN tipo_registro_id = 1 THEN monto ELSE 0 END) AS ingresos_totales, SUM(CASE WHEN tipo_registro_id = 2 THEN monto ELSE 0 END) AS egresos_totales").
-		Where("finanzas_id = ? AND fecha_registro >= ? AND fecha_registro < ? AND deleted_at IS NULL", 1, inicio, final).
+		Where("finanzas_id = ? AND fecha_registro >= ? AND fecha_registro < ? AND deleted_at IS NULL", finanzaId, inicio, final).
 		Scan(&resumen).Error
 	if err != nil {
 		return nil, err
