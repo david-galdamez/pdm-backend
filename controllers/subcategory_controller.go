@@ -28,13 +28,9 @@ func (h *SubcategoryHandler) GetSubcategoryById(c *gin.Context) {
 		return
 	}
 
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
+	financeId := services.FinanceId(c)
 
-	subcategory, err := h.SubcategoryRepo.GetSubcategory(subcategoryId)
+	subcategory, err := h.SubcategoryRepo.GetSubcategory(subcategoryId, financeId)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "The subcategory was not found"})
@@ -49,12 +45,6 @@ func (h *SubcategoryHandler) GetSubcategoryById(c *gin.Context) {
 
 func (h *SubcategoryHandler) GetBudgetTypes(c *gin.Context) {
 
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
-
 	budgetTypes, err := h.SubcategoryRepo.GetBudgetTypes()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "An error occurred while fetching the budget types"})
@@ -66,25 +56,7 @@ func (h *SubcategoryHandler) GetBudgetTypes(c *gin.Context) {
 
 func (h *SubcategoryHandler) GetSubcategoriesList(c *gin.Context) {
 
-	var financeId uint
-
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
-
-	id, err := services.GetFinanceId(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The query format is invalid"})
-		return
-	}
-
-	financeId = userClaims.FinanceID
-
-	if id != 0 {
-		financeId = id
-	}
+	financeId := services.FinanceId(c)
 
 	subcategories, err := h.SubcategoryRepo.GetSubcategoriesList(financeId)
 	if err != nil {
@@ -103,7 +75,6 @@ type SubcategoryRequest struct {
 }
 
 func (h *SubcategoryHandler) CreateSubcategory(c *gin.Context) {
-	var financeId uint
 	var subcategoryRequest SubcategoryRequest
 	var subcategory models.ExpenseSubcategory
 
@@ -124,17 +95,7 @@ func (h *SubcategoryHandler) CreateSubcategory(c *gin.Context) {
 		return
 	}
 
-	id, err := services.GetFinanceId(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The query format is invalid"})
-		return
-	}
-
-	financeId = userClaims.FinanceID
-
-	if id != 0 {
-		financeId = id
-	}
+	financeId := services.FinanceId(c)
 
 	subcategory.FinanceID = financeId
 	subcategory.UserID = userClaims.UserID
@@ -166,13 +127,9 @@ func (h *SubcategoryHandler) UpdateSubcategory(c *gin.Context) {
 		return
 	}
 
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
+	financeId := services.FinanceId(c)
 
-	subcategory, err := h.SubcategoryRepo.GetSubcategoryById(subcategoryId)
+	subcategory, err := h.SubcategoryRepo.GetSubcategoryById(subcategoryId, financeId)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "The subcategory was not found"})

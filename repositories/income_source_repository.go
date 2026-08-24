@@ -63,10 +63,10 @@ func (r *IncomeSourceRepository) CreateIncomeSource(incomeSource *models.IncomeS
 	return r.DB.Create(&incomeSource).Error
 }
 
-func (r *IncomeSourceRepository) GetIncomeSourceById(id *uint) (*models.IncomeSource, error) {
+func (r *IncomeSourceRepository) GetIncomeSourceById(id *uint, financeId uint) (*models.IncomeSource, error) {
 	var incomeSource models.IncomeSource
 
-	if err := r.DB.First(&incomeSource, id).Error; err != nil {
+	if err := r.DB.Where("id = ? AND finance_id = ?", *id, financeId).First(&incomeSource).Error; err != nil {
 		return nil, err
 	}
 
@@ -80,10 +80,10 @@ type IncomeSourceResponse struct {
 	Description    string  `json:"description"`
 }
 
-func (r *IncomeSourceRepository) GetIncomeSource(id *uint) (*IncomeSourceResponse, error) {
+func (r *IncomeSourceRepository) GetIncomeSource(id *uint, financeId uint) (*IncomeSourceResponse, error) {
 	var response IncomeSourceResponse
 
-	tx := r.DB.Model(models.IncomeSource{}).Where("income_sources.id = ?", id).
+	tx := r.DB.Model(models.IncomeSource{}).Where("income_sources.id = ? AND finance_id = ?", id, financeId).
 		Select("income_sources.id AS income_source_id, income_sources.name AS name, income_sources.amount AS amount, income_sources.description AS description").
 		Scan(&response)
 

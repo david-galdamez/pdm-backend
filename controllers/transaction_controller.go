@@ -23,25 +23,7 @@ func NewTransactionHandler(transactionRepo *repositories.TransactionRepository) 
 
 func (h *TransactionHandler) GetTransactions(c *gin.Context) {
 
-	var financeId uint
-
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
-
-	id, err := services.GetFinanceId(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The query format is invalid"})
-		return
-	}
-
-	financeId = userClaims.FinanceID
-
-	if id != 0 {
-		financeId = id
-	}
+	financeId := services.FinanceId(c)
 
 	monthStart, monthEnd, httpCode, jsonResponse, ok := services.ParseMonthAndYear(c)
 	if !ok {
@@ -69,25 +51,7 @@ func (h *TransactionHandler) GetTransactions(c *gin.Context) {
 
 func (h *TransactionHandler) GetTransactionOptions(c *gin.Context) {
 
-	var financeId uint
-
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
-
-	id, err := services.GetFinanceId(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The query format is invalid"})
-		return
-	}
-
-	financeId = userClaims.FinanceID
-
-	if id != 0 {
-		financeId = id
-	}
+	financeId := services.FinanceId(c)
 
 	options, err := h.TransactionRepo.GetOptions(financeId)
 	if err != nil {
@@ -106,13 +70,9 @@ func (h *TransactionHandler) GetTransactionById(c *gin.Context) {
 		return
 	}
 
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
+	financeId := services.FinanceId(c)
 
-	transaction, err := h.TransactionRepo.GetTransactionById(transactionId)
+	transaction, err := h.TransactionRepo.GetTransactionById(transactionId, financeId)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "The transaction was not found"})
@@ -135,8 +95,6 @@ type TransactionRequest struct {
 
 func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
 
-	var financeId uint
-	var savingsId uint
 	var transactionRequest TransactionRequest
 	var transaction models.Transaction
 
@@ -154,22 +112,21 @@ func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
 		return
 	}
 
-	id, err := services.GetFinanceId(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The query format is invalid"})
-		return
-	}
+	financeId := services.FinanceId(c)
+	savingsId := userClaims.SavingsID
 
-	financeId = userClaims.FinanceID
-	savingsId = userClaims.SavingsID
+	// Any finance other than the caller's own personal one is shared, and its
+	// savings subcategory is not the one carried in the token.
+	isSharedFinance := financeId != userClaims.FinanceID
 
-	if id != 0 {
-		financeId = id
-		savingsId, err = h.TransactionRepo.GetSavingSubcategory(financeId)
+	if isSharedFinance {
+		subcategoryId, err := h.TransactionRepo.GetSavingSubcategory(financeId)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "An error occurred while resolving the savings subcategory"})
 			return
 		}
+
+		savingsId = subcategoryId
 	}
 
 	transaction.FinanceID = financeId
@@ -246,7 +203,7 @@ func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
 		}
 	}
 
-	if id != 0 {
+	if isSharedFinance {
 		webSocketEvent := h.TransactionRepo.BuildWebSocketEvent(financeId, transaction.ExpenseSubcategoryID, savingsId)
 
 		websockets.BroadcastMessages <- *webSocketEvent

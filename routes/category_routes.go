@@ -13,8 +13,11 @@ func CategoryRouter(r *gin.Engine) {
 	categoryRepo := repositories.NewCategoryRepository(repositories.GetDB())
 	handler := controllers.NewCategoryHandler(categoryRepo)
 
+	authRepo := repositories.NewUserRepository(repositories.GetDB())
+	accessRepo := repositories.NewFinanceAccessRepository(repositories.GetDB())
+
 	categories := r.Group("/categories")
-	categories.Use(middlewares.AuthMiddleware())
+	categories.Use(middlewares.AuthMiddleware(authRepo), middlewares.FinanceAccess(accessRepo))
 	{
 		categories.GET("/options", handler.GetCategories)
 		categories.GET("", handler.GetCategoriesList)

@@ -21,25 +21,7 @@ func NewIncomeSourceHandler(incomeSourceRepo *repositories.IncomeSourceRepositor
 
 func (h *IncomeSourceHandler) GetIncomeSourcesList(c *gin.Context) {
 
-	var financeId uint
-
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
-
-	id, err := services.GetFinanceId(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The query format is invalid"})
-		return
-	}
-
-	financeId = userClaims.FinanceID
-
-	if id != 0 {
-		financeId = id
-	}
+	financeId := services.FinanceId(c)
 
 	incomeSources, err := h.IncomeSourceRepo.GetIncomeSourcesList(financeId)
 	if err != nil {
@@ -58,13 +40,9 @@ func (h *IncomeSourceHandler) GetIncomeSourceById(c *gin.Context) {
 		return
 	}
 
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
+	financeId := services.FinanceId(c)
 
-	incomeSource, err := h.IncomeSourceRepo.GetIncomeSource(incomeSourceId)
+	incomeSource, err := h.IncomeSourceRepo.GetIncomeSource(incomeSourceId, financeId)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "That income source does not exist"})
@@ -88,7 +66,6 @@ func (h *IncomeSourceHandler) CreateIncomeSource(c *gin.Context) {
 
 	var incomeSourceRequest IncomeSourceRequest
 	var incomeSource models.IncomeSource
-	var financeId uint
 
 	if err := c.ShouldBindJSON(&incomeSourceRequest); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The request format is invalid"})
@@ -101,17 +78,7 @@ func (h *IncomeSourceHandler) CreateIncomeSource(c *gin.Context) {
 		return
 	}
 
-	id, err := services.GetFinanceId(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The query format is invalid"})
-		return
-	}
-
-	financeId = userClaims.FinanceID
-
-	if id != 0 {
-		financeId = id
-	}
+	financeId := services.FinanceId(c)
 
 	incomeSource.FinanceID = financeId
 	incomeSource.UserID = userClaims.UserID
@@ -142,13 +109,9 @@ func (h *IncomeSourceHandler) UpdateIncomeSource(c *gin.Context) {
 		return
 	}
 
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
+	financeId := services.FinanceId(c)
 
-	incomeSource, err := h.IncomeSourceRepo.GetIncomeSourceById(incomeSourceId)
+	incomeSource, err := h.IncomeSourceRepo.GetIncomeSourceById(incomeSourceId, financeId)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "That income source does not exist"})

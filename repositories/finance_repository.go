@@ -17,7 +17,23 @@ func NewFinanceRepository(db *gorm.DB) *FinanceRepository {
 	return &FinanceRepository{DB: db}
 }
 
-func SumAmount(db *gorm.DB, model interface{}, financeId uint, entryType int, from, to time.Time) (float64, error) {
+// IsFinanceAdmin reports whether the user administers the finance: they
+// created it, and it is a shared finance. There is no admin-transfer feature,
+// so the creator is always the current admin.
+func (r *FinanceRepository) IsFinanceAdmin(financeId, userId uint) (bool, error) {
+	var count int64
+
+	err := r.DB.Model(&models.Finance{}).
+		Where("id = ? AND user_id = ? AND finance_type_id = ?", financeId, userId, models.FinanceTypeShared).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
+}
+
+func SumAmount(db *gorm.DB, model any, financeId uint, entryType int, from, to time.Time) (float64, error) {
 	var total float64
 
 	err := db.Model(model).

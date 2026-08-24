@@ -22,7 +22,7 @@ type Invitation struct {
 	Code string `json:"invitation_code"`
 }
 
-func (r *InvitationRepository) CreateInvite(financeId *uint) (*Invitation, error) {
+func (r *InvitationRepository) CreateInvite(financeId uint) (*Invitation, error) {
 
 	var response Invitation
 	maxAttempts := 5
@@ -35,7 +35,7 @@ func (r *InvitationRepository) CreateInvite(financeId *uint) (*Invitation, error
 		}
 
 		invitation := models.Invitation{
-			FinanceID: *financeId,
+			FinanceID: financeId,
 			Code:      code,
 			ExpiresAt: time.Now().Add(time.Minute * 15),
 		}

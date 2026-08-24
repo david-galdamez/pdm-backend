@@ -84,7 +84,7 @@ func (h *UserHandler) Login(c *gin.Context) {
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "There is no account associated with that email address"})
+			c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid email or password"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Server error"})
@@ -92,7 +92,7 @@ func (h *UserHandler) Login(c *gin.Context) {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(userRequest.Password)); err != nil {
-		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "The password provided is incorrect"})
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "Invalid email or password"})
 		return
 	}
 
@@ -102,7 +102,7 @@ func (h *UserHandler) Login(c *gin.Context) {
 		return
 	}
 
-	token, err := services.GenerateJWT(user.ID, user.Name, user.Email, identifiers.FinanceID, identifiers.SavingsID)
+	token, err := services.GenerateJWT(user.ID, user.Name, user.Email, identifiers.FinanceID, identifiers.SavingsID, user.TokenVersion)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Could not issue the token"})
 		return
@@ -206,11 +206,23 @@ func (h *UserHandler) UpdatePassword(c *gin.Context) {
 	}
 
 	user.PasswordHash = string(hashedPassword)
+	// Invalidates every token issued before this change, including the one
+	// used to make this request.
+	user.TokenVersion++
 
 	if err := h.UserRepo.UpdateUser(user); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Error updating the password"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"success": true, "message": "The password was updated successfully"})
+	// The token this request was authenticated with just became invalid, so
+	// hand back one that matches the new version rather than logging the
+	// caller out of their own successful request.
+	token, err := services.GenerateJWT(user.ID, user.Name, user.Email, userClaims.FinanceID, userClaims.SavingsID, user.TokenVersion)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Could not issue a new token"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "The password was updated successfully", "token": token})
 }

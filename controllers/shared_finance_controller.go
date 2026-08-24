@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"pdm-backend/repositories"
 	"pdm-backend/services"
+	"pdm-backend/websockets"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -103,19 +104,9 @@ func (h *SharedFinanceHandler) GetSharedFinances(c *gin.Context) {
 
 func (h *SharedFinanceHandler) GetSharedFinanceDetails(c *gin.Context) {
 
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
+	financeId := services.FinanceId(c)
 
-	financeId, httpCode, jsonResponse := services.ParseUint(c)
-	if financeId == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
-
-	details, err := h.SharedFinanceRepo.GetSharedFinanceDetails(*financeId)
+	details, err := h.SharedFinanceRepo.GetSharedFinanceDetails(financeId)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "An error occurred while fetching the finance details"})
 		return
@@ -132,23 +123,19 @@ func (h *SharedFinanceHandler) RemoveUserFromFinance(c *gin.Context) {
 		return
 	}
 
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
+	financeId := services.FinanceId(c)
 
-	financeId, err := services.GetFinanceId(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The query format is invalid"})
-		return
-	}
+	if err := h.SharedFinanceRepo.LeaveSharedFinance(*userId, financeId); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "That user is not a member of this finance"})
+			return
+		}
 
-	err = h.SharedFinanceRepo.LeaveSharedFinance(*userId, financeId)
-	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "An error occurred while removing the user"})
 		return
 	}
+
+	websockets.DisconnectUser(financeId, *userId)
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "The user was removed successfully"})
 }
@@ -167,11 +154,17 @@ func (h *SharedFinanceHandler) LeaveSharedFinance(c *gin.Context) {
 		return
 	}
 
-	err := h.SharedFinanceRepo.LeaveSharedFinance(userClaims.UserID, *financeId)
-	if err != nil {
+	if err := h.SharedFinanceRepo.LeaveSharedFinance(userClaims.UserID, *financeId); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "You are not a member of this finance"})
+			return
+		}
+
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "An error occurred while leaving the finance"})
 		return
 	}
+
+	websockets.DisconnectUser(*financeId, userClaims.UserID)
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "You left the finance successfully"})
 }

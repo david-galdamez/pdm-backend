@@ -14,7 +14,9 @@ import (
 func main() {
 	cfg := config.Get()
 
-	gin.SetMode(gin.ReleaseMode)
+	if cfg.ENV == "production" {
+		gin.SetMode(gin.ReleaseMode)
+	}
 
 	r := gin.Default()
 

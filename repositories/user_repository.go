@@ -105,3 +105,16 @@ func (r *UserRepository) GetFinanceAndSavingSubcategoryByUserId(userId uint) (*I
 func (r *UserRepository) UpdateUser(user *models.User) error {
 	return r.DB.Save(&user).Error
 }
+
+// GetTokenVersion is what AuthMiddleware checks a token's embedded version
+// against on every request, so a password change invalidates outstanding
+// tokens without a revocation list.
+func (r *UserRepository) GetTokenVersion(userId uint) (uint, error) {
+	var user models.User
+
+	if err := r.DB.Select("token_version").First(&user, userId).Error; err != nil {
+		return 0, err
+	}
+
+	return user.TokenVersion, nil
+}

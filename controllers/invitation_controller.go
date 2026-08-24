@@ -18,17 +18,7 @@ func NewInvitationHandler(invitationRepo *repositories.InvitationRepository) *In
 
 func (h *InvitationHandler) CreateInvite(c *gin.Context) {
 
-	financeId, httpCode, jsonResponse := services.ParseUint(c)
-	if financeId == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
-
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
+	financeId := services.FinanceId(c)
 
 	invitation, err := h.InvitationRepo.CreateInvite(financeId)
 	if err != nil {

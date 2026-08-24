@@ -88,7 +88,13 @@ func (r *SharedFinanceRepository) JoinUser(userId uint, code string) error {
 
 	var invitation models.Invitation
 
-	err := r.DB.Where("code = ?", code).First(&invitation).Error
+	// Joined so a stale or maliciously issued invitation cannot be redeemed
+	// against a personal finance, even if one was somehow created for one.
+	// invitations.* keeps the select unambiguous: both tables have id,
+	// created_at, updated_at, and deleted_at columns.
+	err := r.DB.Select("invitations.*").
+		Joins("JOIN finances ON finances.id = invitations.finance_id AND finances.finance_type_id = ?", models.FinanceTypeShared).
+		Where("code = ?", code).First(&invitation).Error
 	if err != nil {
 		return err
 	}

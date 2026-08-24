@@ -13,8 +13,11 @@ func IncomeSourceRouter(r *gin.Engine) {
 	incomeSourceRepo := repositories.NewIncomeSourceRepository(repositories.GetDB())
 	handler := controllers.NewIncomeSourceHandler(incomeSourceRepo)
 
+	authRepo := repositories.NewUserRepository(repositories.GetDB())
+	accessRepo := repositories.NewFinanceAccessRepository(repositories.GetDB())
+
 	incomeSources := r.Group("/income-sources")
-	incomeSources.Use(middlewares.AuthMiddleware())
+	incomeSources.Use(middlewares.AuthMiddleware(authRepo), middlewares.FinanceAccess(accessRepo))
 	{
 		incomeSources.GET("", handler.GetIncomeSourcesList)
 		incomeSources.GET("/:id", handler.GetIncomeSourceById)

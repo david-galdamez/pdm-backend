@@ -12,8 +12,11 @@ func TransactionRouter(r *gin.Engine) {
 	transactionRepo := repositories.NewTransactionRepository(repositories.GetDB())
 	handler := controllers.NewTransactionHandler(transactionRepo)
 
+	authRepo := repositories.NewUserRepository(repositories.GetDB())
+	accessRepo := repositories.NewFinanceAccessRepository(repositories.GetDB())
+
 	transactions := r.Group("/transactions")
-	transactions.Use(middlewares.AuthMiddleware())
+	transactions.Use(middlewares.AuthMiddleware(authRepo), middlewares.FinanceAccess(accessRepo))
 	{
 		transactions.GET("", handler.GetTransactions)
 		transactions.GET("/options", handler.GetTransactionOptions)

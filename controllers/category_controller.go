@@ -22,25 +22,7 @@ func NewCategoryHandler(categoryRepo *repositories.CategoryRepository) *Category
 
 func (h *CategoryHandler) GetCategories(c *gin.Context) {
 
-	var financeId uint
-
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
-
-	id, err := services.GetFinanceId(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The query format is invalid"})
-		return
-	}
-
-	financeId = userClaims.FinanceID
-
-	if id != 0 {
-		financeId = id
-	}
+	financeId := services.FinanceId(c)
 
 	categories, err := h.CategoryRepo.GetCategories(financeId)
 	if err != nil {
@@ -53,31 +35,13 @@ func (h *CategoryHandler) GetCategories(c *gin.Context) {
 
 func (h *CategoryHandler) GetCategoriesData(c *gin.Context) {
 
-	var financeId uint
-
 	categoryId, httpCode, jsonResponse := services.ParseUint(c)
 	if categoryId == nil {
 		c.JSON(httpCode, jsonResponse)
 		return
 	}
 
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
-
-	id, err := services.GetFinanceId(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The query format is invalid"})
-		return
-	}
-
-	financeId = userClaims.FinanceID
-
-	if id != 0 {
-		financeId = id
-	}
+	financeId := services.FinanceId(c)
 
 	breakdown, err := h.CategoryRepo.GetCategoriesData(financeId, categoryId)
 	if err != nil {
@@ -94,7 +58,6 @@ type CategoryRequest struct {
 
 func (h *CategoryHandler) CreateCategory(c *gin.Context) {
 
-	var financeId uint
 	var categoryRequest CategoryRequest
 	var category models.ExpenseCategory
 
@@ -115,17 +78,7 @@ func (h *CategoryHandler) CreateCategory(c *gin.Context) {
 		return
 	}
 
-	id, err := services.GetFinanceId(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The query format is invalid"})
-		return
-	}
-
-	financeId = userClaims.FinanceID
-
-	if id != 0 {
-		financeId = id
-	}
+	financeId := services.FinanceId(c)
 
 	category.Name = categoryRequest.Name
 	category.FinanceID = financeId
@@ -154,13 +107,9 @@ func (h *CategoryHandler) UpdateCategory(c *gin.Context) {
 		return
 	}
 
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
+	financeId := services.FinanceId(c)
 
-	category, err := h.CategoryRepo.GetCategoryById(categoryId)
+	category, err := h.CategoryRepo.GetCategoryById(categoryId, financeId)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "The category was not found"})
@@ -182,25 +131,7 @@ func (h *CategoryHandler) UpdateCategory(c *gin.Context) {
 
 func (h *CategoryHandler) GetCategoriesList(c *gin.Context) {
 
-	var financeId uint
-
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
-
-	id, err := services.GetFinanceId(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The query format is invalid"})
-		return
-	}
-
-	financeId = userClaims.FinanceID
-
-	if id != 0 {
-		financeId = id
-	}
+	financeId := services.FinanceId(c)
 
 	categories, err := h.CategoryRepo.GetCategoriesList(financeId)
 	if err != nil {

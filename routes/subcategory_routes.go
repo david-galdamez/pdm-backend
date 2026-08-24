@@ -13,8 +13,11 @@ func SubcategoryRouter(r *gin.Engine) {
 	subcategoryRepo := repositories.NewSubcategoryRepository(repositories.GetDB())
 	handler := controllers.NewSubcategoryHandler(subcategoryRepo)
 
+	authRepo := repositories.NewUserRepository(repositories.GetDB())
+	accessRepo := repositories.NewFinanceAccessRepository(repositories.GetDB())
+
 	subcategories := r.Group("/subcategories")
-	subcategories.Use(middlewares.AuthMiddleware())
+	subcategories.Use(middlewares.AuthMiddleware(authRepo), middlewares.FinanceAccess(accessRepo))
 	{
 		subcategories.GET("", handler.GetSubcategoriesList)
 		subcategories.GET("/budget-types", handler.GetBudgetTypes)

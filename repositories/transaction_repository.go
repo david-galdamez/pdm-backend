@@ -147,11 +147,11 @@ type TransactionDetails struct {
 	UserName      string  `json:"user_name" gorm:"column:user_name"`
 }
 
-func (r *TransactionRepository) GetTransactionById(transactionId *uint) (*TransactionDetails, error) {
+func (r *TransactionRepository) GetTransactionById(transactionId *uint, financeId uint) (*TransactionDetails, error) {
 
 	var transaction TransactionDetails
 
-	tx := r.DB.Model(models.Transaction{}).Where("transactions.id = ?", transactionId).
+	tx := r.DB.Model(models.Transaction{}).Where("transactions.id = ? AND transactions.finance_id = ?", transactionId, financeId).
 		Select(`
 		transactions.entry_type_id AS entry_type_id,
 		entry_types.name AS entry_type_name,

@@ -19,7 +19,7 @@ func UserRouter(r *gin.Engine) {
 	auth.POST("/register", handler.Register)
 
 	users := r.Group("/users")
-	users.Use(middlewares.AuthMiddleware())
+	users.Use(middlewares.AuthMiddleware(userRepo))
 	{
 		users.PATCH("/me", handler.UpdateProfile)
 		users.PATCH("/me/password", handler.UpdatePassword)

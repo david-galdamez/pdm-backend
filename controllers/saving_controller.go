@@ -20,7 +20,6 @@ func NewSavingHandler(savingRepo *repositories.SavingRepository) *SavingHandler 
 
 func (h *SavingHandler) GetSavingsData(c *gin.Context) {
 
-	var financeId uint
 	yearParam := c.Query("year")
 
 	year, err := strconv.Atoi(yearParam)
@@ -29,23 +28,7 @@ func (h *SavingHandler) GetSavingsData(c *gin.Context) {
 		return
 	}
 
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
-
-	id, err := services.GetFinanceId(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The query format is invalid"})
-		return
-	}
-
-	financeId = userClaims.FinanceID
-
-	if id != 0 {
-		financeId = id
-	}
+	financeId := services.FinanceId(c)
 
 	savingsData, err := h.SavingRepo.GetSavingsData(financeId, year)
 	if err != nil {
@@ -64,7 +47,6 @@ type SavingGoalRequest struct {
 
 func (h *SavingHandler) CreateSavingGoal(c *gin.Context) {
 
-	var financeId uint
 	var goalRequest SavingGoalRequest
 
 	if err := c.ShouldBindJSON(&goalRequest); err != nil {
@@ -85,23 +67,7 @@ func (h *SavingHandler) CreateSavingGoal(c *gin.Context) {
 		return
 	}
 
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
-
-	id, err := services.GetFinanceId(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The query format is invalid"})
-		return
-	}
-
-	financeId = userClaims.FinanceID
-
-	if id != 0 {
-		financeId = id
-	}
+	financeId := services.FinanceId(c)
 
 	if err := h.SavingRepo.CreateOrUpdateSavingGoal(financeId, goalRequest.Amount, goalRequest.Month, goalRequest.Year); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "An error occurred while saving the monthly goal"})

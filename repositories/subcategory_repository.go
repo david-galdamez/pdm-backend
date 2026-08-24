@@ -113,11 +113,11 @@ func (r *SubcategoryRepository) CreateSubcategory(subcategory *models.ExpenseSub
 	return r.DB.Create(&subcategory).Error
 }
 
-func (r *SubcategoryRepository) GetSubcategoryById(id *uint) (*models.ExpenseSubcategory, error) {
+func (r *SubcategoryRepository) GetSubcategoryById(id *uint, financeId uint) (*models.ExpenseSubcategory, error) {
 
 	var subcategory models.ExpenseSubcategory
 
-	if err := r.DB.First(&subcategory, id).Error; err != nil {
+	if err := r.DB.Where("id = ? AND finance_id = ?", *id, financeId).First(&subcategory).Error; err != nil {
 		return nil, err
 	}
 
@@ -131,7 +131,7 @@ type SubcategoryResponse struct {
 	Budget       float64 `json:"budget"`
 }
 
-func (r *SubcategoryRepository) GetSubcategory(id *uint) (*SubcategoryResponse, error) {
+func (r *SubcategoryRepository) GetSubcategory(id *uint, financeId uint) (*SubcategoryResponse, error) {
 
 	var subcategory SubcategoryResponse
 
@@ -139,7 +139,7 @@ func (r *SubcategoryRepository) GetSubcategory(id *uint) (*SubcategoryResponse, 
 	month := int(now.Month())
 	year := now.Year()
 
-	tx := r.DB.Model(models.ExpenseSubcategory{}).Where("expense_subcategories.id = ?", id).
+	tx := r.DB.Model(models.ExpenseSubcategory{}).Where("expense_subcategories.id = ? AND expense_subcategories.finance_id = ?", id, financeId).
 		Select(`
 		expense_subcategories.expense_category_id AS category_id,
 		expense_subcategories.name AS name,

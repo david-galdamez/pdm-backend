@@ -18,25 +18,7 @@ func NewFinanceHandler(financeRepo *repositories.FinanceRepository) *FinanceHand
 
 func (h *FinanceHandler) GetDashboardSummary(c *gin.Context) {
 
-	var financeId uint
-
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
-
-	id, err := services.GetFinanceId(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The query format is invalid"})
-		return
-	}
-
-	financeId = userClaims.FinanceID
-
-	if id != 0 {
-		financeId = id
-	}
+	financeId := services.FinanceId(c)
 
 	monthStart, monthEnd, httpCode, jsonResponse, ok := services.ParseMonthAndYear(c)
 	if !ok {
@@ -59,25 +41,7 @@ func (h *FinanceHandler) GetDashboardSummary(c *gin.Context) {
 
 func (h *FinanceHandler) GetDashboardData(c *gin.Context) {
 
-	var financeId uint
-
-	userClaims, httpCode, jsonResponse := services.GetClaims(c)
-	if userClaims == nil {
-		c.JSON(httpCode, jsonResponse)
-		return
-	}
-
-	id, err := services.GetFinanceId(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The query format is invalid"})
-		return
-	}
-
-	financeId = userClaims.FinanceID
-
-	if id != 0 {
-		financeId = id
-	}
+	financeId := services.FinanceId(c)
 
 	monthStart, monthEnd, httpCode, jsonResponse, ok := services.ParseMonthAndYear(c)
 	if !ok {

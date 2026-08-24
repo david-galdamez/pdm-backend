@@ -130,11 +130,11 @@ func (r *CategoryRepository) CreateCategory(category *models.ExpenseCategory) er
 	return r.DB.Create(&category).Error
 }
 
-func (r *CategoryRepository) GetCategoryById(id *uint) (*models.ExpenseCategory, error) {
+func (r *CategoryRepository) GetCategoryById(id *uint, financeId uint) (*models.ExpenseCategory, error) {
 
 	var category models.ExpenseCategory
 
-	if err := r.DB.First(&category, id).Error; err != nil {
+	if err := r.DB.Where("id = ? AND finance_id = ?", *id, financeId).First(&category).Error; err != nil {
 		return nil, err
 	}
 
