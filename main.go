@@ -1,25 +1,17 @@
 package main
 
 import (
-	"log"
-	"os"
+	"pdm-backend/internal/config"
 	"pdm-backend/routes"
 	"pdm-backend/websockets"
 	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
 )
 
 func main() {
-
-	if os.Getenv("ENV") != "production" {
-		err := godotenv.Load(".env")
-		if err != nil {
-			log.Println("Could not load .env (this is expected in production)")
-		}
-	}
+	config.Get()
 
 	gin.SetMode(gin.ReleaseMode)
 
@@ -49,9 +41,5 @@ func main() {
 	routes.SharedFinanceRouter(r)
 	websockets.WebSocketRouter(r)
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-	r.Run(":" + port)
+	r.Run(":" + config.Get().PORT)
 }

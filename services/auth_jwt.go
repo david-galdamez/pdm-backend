@@ -2,14 +2,10 @@ package services
 
 import (
 	"fmt"
-	"log"
-	"os"
+	"pdm-backend/internal/config"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/joho/godotenv"
 )
-
-var secret string
 
 type JWTClaims struct {
 	UserID    uint   `json:"userId"`
@@ -18,21 +14,6 @@ type JWTClaims struct {
 	FinanceID uint   `json:"financeId"`
 	SavingsID uint   `json:"savingsId"`
 	jwt.RegisteredClaims
-}
-
-func init() {
-
-	if os.Getenv("ENV") != "production" {
-		err := godotenv.Load(".env")
-		if err != nil {
-			log.Println("Could not load .env (this is expected in production)")
-		}
-	}
-
-	secret = os.Getenv("SECRET_WORD")
-	if secret == "" {
-		log.Fatal("SECRET_WORD is not set")
-	}
 }
 
 func GenerateJWT(userId uint, userName string, userEmail string, financeId, savingsId uint) (string, error) {
@@ -47,7 +28,7 @@ func GenerateJWT(userId uint, userName string, userEmail string, financeId, savi
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
-	return token.SignedString([]byte(secret))
+	return token.SignedString([]byte(config.Get().JWT_SECRET))
 }
 
 func ValidateJWT(tokenString string) (*jwt.Token, *JWTClaims, error) {
@@ -57,7 +38,7 @@ func ValidateJWT(tokenString string) (*jwt.Token, *JWTClaims, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("invalid signing method: %v", token.Header["alg"])
 		}
-		return []byte(secret), nil
+		return []byte(config.Get().JWT_SECRET), nil
 	})
 
 	if err != nil {

@@ -2,10 +2,9 @@ package repositories
 
 import (
 	"log"
-	"os"
+	"pdm-backend/internal/config"
 	"sync"
 
-	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -17,19 +16,8 @@ var (
 
 func GetDB() *gorm.DB {
 	once.Do(func() {
-		if os.Getenv("ENV") != "production" {
-			err := godotenv.Load(".env")
-			if err != nil {
-				log.Println("Could not load .env (this is expected in production)")
-			}
-		}
 
-		dsn := os.Getenv("POSTGRES_URL")
-		if dsn == "" {
-			log.Fatal("POSTGRES_URL is not set")
-		}
-
-		DB, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+		DB, err := gorm.Open(postgres.Open(config.Get().DATABASE_URL), &gorm.Config{})
 		if err != nil {
 			log.Fatal("Error connecting to the database: ", err)
 		}
