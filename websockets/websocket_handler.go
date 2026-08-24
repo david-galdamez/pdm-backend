@@ -11,9 +11,9 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var clientsFinanza = make(map[uint]map[*websocket.Conn]bool)
+var financeClients = make(map[uint]map[*websocket.Conn]bool)
 var mu sync.RWMutex
-var MensajeBroadcast = make(chan repositories.BroadCastMessage, 100)
+var BroadcastMessages = make(chan repositories.BroadCastMessage, 100)
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
@@ -25,25 +25,25 @@ func HandleConnection(c *gin.Context) {
 
 	idUint, err := strconv.ParseUint(idParam, 10, 64)
 	if err != nil {
-		log.Println("Ocurrio un error convertir el id")
+		log.Println("Could not parse the finance id")
 		return
 	}
-	idFinanza := uint(idUint)
+	financeId := uint(idUint)
 
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Println("Ocurrio un error al convertir en websocket")
+		log.Println("Could not upgrade the connection to a websocket")
 		return
 	}
 
 	defer ws.Close()
 
 	mu.Lock()
-	if clientsFinanza[idFinanza] == nil {
-		clientsFinanza[idFinanza] = make(map[*websocket.Conn]bool)
+	if financeClients[financeId] == nil {
+		financeClients[financeId] = make(map[*websocket.Conn]bool)
 	}
 
-	clientsFinanza[idFinanza][ws] = true
+	financeClients[financeId][ws] = true
 	mu.Unlock()
 
 	for {
@@ -51,10 +51,10 @@ func HandleConnection(c *gin.Context) {
 		err := ws.ReadJSON(&msg)
 		if err != nil {
 			mu.Lock()
-			delete(clientsFinanza[idFinanza], ws)
+			delete(financeClients[financeId], ws)
 
-			if len(clientsFinanza[idFinanza]) == 0 {
-				delete(clientsFinanza, idFinanza)
+			if len(financeClients[financeId]) == 0 {
+				delete(financeClients, financeId)
 			}
 			mu.Unlock()
 			break
@@ -64,18 +64,18 @@ func HandleConnection(c *gin.Context) {
 
 func HandleBroadCast() {
 	for {
-		msg := <-MensajeBroadcast
+		msg := <-BroadcastMessages
 
 		mu.RLock()
-		clients := clientsFinanza[msg.FinanzaId]
+		clients := financeClients[msg.FinanceID]
 		mu.RUnlock()
 		for client := range clients {
 			go func(c *websocket.Conn) {
-				if err := client.WriteJSON(msg.EventInfo); err != nil {
-					log.Println("Error enviando mensaje")
-					client.Close()
+				if err := c.WriteJSON(msg.EventInfo); err != nil {
+					log.Println("Error sending message")
+					c.Close()
 					mu.Lock()
-					delete(clients, client)
+					delete(clients, c)
 					mu.Unlock()
 				}
 			}(client)

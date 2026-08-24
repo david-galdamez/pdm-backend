@@ -12,7 +12,7 @@ func WebSocketRouter(r *gin.Engine) {
 	webSocket.Use(middlewares.AuthMiddleware())
 	{
 
-		webSocket.GET("/finanza/:id", func(c *gin.Context) {
+		webSocket.GET("/finances/:id", func(c *gin.Context) {
 			HandleConnection(c)
 		})
 	}

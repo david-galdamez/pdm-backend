@@ -11,16 +11,17 @@ import (
 func UserRouter(r *gin.Engine) {
 
 	userRepo := repositories.NewUserRepository(repositories.GetDB())
-	financeRepo := repositories.NewFinanzaRepository(repositories.GetDB())
+	financeRepo := repositories.NewFinanceRepository(repositories.GetDB())
 	handler := controllers.NewUserHandler(userRepo, financeRepo)
 
-	user := r.Group("/usuario")
-	user.POST("/login", handler.Login)
-	user.POST("/registro", handler.Register)
+	auth := r.Group("/auth")
+	auth.POST("/login", handler.Login)
+	auth.POST("/register", handler.Register)
 
-	user.Use(middlewares.AuthMiddleware())
+	users := r.Group("/users")
+	users.Use(middlewares.AuthMiddleware())
 	{
-		user.PATCH("/cambiar-perfil", handler.UpdateProfile)
-		user.PATCH("/cambiar-contrasena", handler.UpdatePassword)
+		users.PATCH("/me", handler.UpdateProfile)
+		users.PATCH("/me/password", handler.UpdatePassword)
 	}
 }

@@ -7,16 +7,15 @@ import (
 )
 
 func GetFinanceId(c *gin.Context) (uint, error) {
-	finanzaId := c.Query("finanza_id")
+	financeIdParam := c.Query("finance_id")
 
-	if finanzaId != "" {
-		id, err := strconv.ParseUint(finanzaId, 10, 64)
+	if financeIdParam != "" {
+		id, err := strconv.ParseUint(financeIdParam, 10, 64)
 		if err != nil {
 			return 0, err
 		}
-		finanzaId := uint(id)
 
-		return finanzaId, nil
+		return uint(id), nil
 	}
 
 	return 0, nil

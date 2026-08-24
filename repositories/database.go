@@ -20,18 +20,18 @@ func GetDB() *gorm.DB {
 		if os.Getenv("ENV") != "production" {
 			err := godotenv.Load(".env")
 			if err != nil {
-				log.Println("No se pudo cargar .env (esto es normal en producción)")
+				log.Println("Could not load .env (this is expected in production)")
 			}
 		}
 
 		dsn := os.Getenv("POSTGRES_URL")
 		if dsn == "" {
-			log.Fatal("No se ha encontrado la url de la base de datos")
+			log.Fatal("POSTGRES_URL is not set")
 		}
 
 		DB, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 		if err != nil {
-			log.Fatal("Error conectando a la base de datos:", err)
+			log.Fatal("Error connecting to the database: ", err)
 		}
 
 		db = DB

@@ -8,15 +8,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func FinanzaRouter(r *gin.Engine) {
+func FinanceRouter(r *gin.Engine) {
 
-	finanzaRepo := repositories.NewFinanzaRepository(repositories.GetDB())
-	handler := controllers.NewFinanzaHandler(finanzaRepo)
+	financeRepo := repositories.NewFinanceRepository(repositories.GetDB())
+	handler := controllers.NewFinanceHandler(financeRepo)
 
-	finanza := r.Group("/finanza")
-	finanza.Use(middlewares.AuthMiddleware())
+	finances := r.Group("/finances")
+	finances.Use(middlewares.AuthMiddleware())
 	{
-		finanza.GET("/resumen", handler.GetDashboardSummary)
-		finanza.GET("/datos", handler.GetDashboardData)
+		finances.GET("/summary", handler.GetDashboardSummary)
+		finances.GET("/breakdown", handler.GetDashboardData)
 	}
 }

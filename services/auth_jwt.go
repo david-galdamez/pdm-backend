@@ -12,11 +12,11 @@ import (
 var secret string
 
 type JWTClaims struct {
-	UserId    uint   `json:"userId"`
+	UserID    uint   `json:"userId"`
 	UserName  string `json:"userName"`
 	UserEmail string `json:"userEmail"`
-	FinanzaId uint   `json:"financeId"`
-	AhorroId  uint   `json:"ahorroId"`
+	FinanceID uint   `json:"financeId"`
+	SavingsID uint   `json:"savingsId"`
 	jwt.RegisteredClaims
 }
 
@@ -25,24 +25,24 @@ func init() {
 	if os.Getenv("ENV") != "production" {
 		err := godotenv.Load(".env")
 		if err != nil {
-			log.Println("No se pudo cargar .env (esto es normal en producción)")
+			log.Println("Could not load .env (this is expected in production)")
 		}
 	}
 
 	secret = os.Getenv("SECRET_WORD")
 	if secret == "" {
-		log.Fatal("No se ha encontrado la clave secreta")
+		log.Fatal("SECRET_WORD is not set")
 	}
 }
 
-func GenerateJWT(userId uint, userName string, userEmail string, finanzaId, ahorroId uint) (string, error) {
+func GenerateJWT(userId uint, userName string, userEmail string, financeId, savingsId uint) (string, error) {
 
 	claims := JWTClaims{
-		UserId:    userId,
+		UserID:    userId,
 		UserName:  userName,
 		UserEmail: userEmail,
-		FinanzaId: finanzaId,
-		AhorroId:  ahorroId,
+		FinanceID: financeId,
+		SavingsID: savingsId,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -50,12 +50,12 @@ func GenerateJWT(userId uint, userName string, userEmail string, finanzaId, ahor
 	return token.SignedString([]byte(secret))
 }
 
-func ValidateJWT(cookieToken string) (*jwt.Token, *JWTClaims, error) {
+func ValidateJWT(tokenString string) (*jwt.Token, *JWTClaims, error) {
 	claims := &JWTClaims{}
 
-	token, err := jwt.ParseWithClaims(cookieToken, claims, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("Metodo de firma invalido: %v", token.Header["alg"])
+			return nil, fmt.Errorf("invalid signing method: %v", token.Header["alg"])
 		}
 		return []byte(secret), nil
 	})

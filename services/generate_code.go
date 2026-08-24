@@ -5,18 +5,18 @@ import (
 	"math/big"
 )
 
-const caracteres = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+const codeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
-func GenerateInvitacionCode(nCharacters int) (string, error) {
-	codigo := make([]byte, nCharacters)
+func GenerateInvitationCode(length int) (string, error) {
+	code := make([]byte, length)
 
-	for i := range codigo {
-		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(caracteres))))
+	for i := range code {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(codeAlphabet))))
 		if err != nil {
 			return "", err
 		}
-		codigo[i] = caracteres[num.Int64()]
+		code[i] = codeAlphabet[num.Int64()]
 	}
 
-	return string(codigo), nil
+	return string(code), nil
 }

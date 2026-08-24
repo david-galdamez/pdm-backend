@@ -17,7 +17,7 @@ func main() {
 	if os.Getenv("ENV") != "production" {
 		err := godotenv.Load(".env")
 		if err != nil {
-			log.Println("No se pudo cargar .env (esto es normal en producción)")
+			log.Println("Could not load .env (this is expected in production)")
 		}
 	}
 
@@ -39,19 +39,19 @@ func main() {
 	go websockets.HandleBroadCast()
 
 	routes.UserRouter(r)
-	routes.FinanzaRouter(r)
-	routes.CategoriaRouter(r)
-	routes.TransaccionRouter(r)
-	routes.SubCategoriaRouter(r)
-	routes.IngresosRouter(r)
-	routes.AhorroRouter(r)
-	routes.InvitacionRouter(r)
-	routes.FinanzaConjuntoRouter(r)
+	routes.FinanceRouter(r)
+	routes.CategoryRouter(r)
+	routes.TransactionRouter(r)
+	routes.SubcategoryRouter(r)
+	routes.IncomeSourceRouter(r)
+	routes.SavingRouter(r)
+	routes.InvitationRouter(r)
+	routes.SharedFinanceRouter(r)
 	websockets.WebSocketRouter(r)
 
-	PORT := os.Getenv("PORT")
-	if PORT == "" {
-		PORT = "8080"
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
 	}
-	r.Run(":" + PORT)
+	r.Run(":" + port)
 }
