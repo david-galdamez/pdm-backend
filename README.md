@@ -14,10 +14,17 @@ Create a `.env` file in the project root:
 
 ```env
 PORT=8000
-POSTGRES_URL=postgres://user:password@your-host.neon.tech:5432/your_database
-SECRET_WORD=super_secret_key
+DATABASE_URL=postgres://user:password@your-host.neon.tech:5432/your_database
+JWT_SECRET=super_secret_key_at_least_32_characters
 ENV=development
+ALLOWED_ORIGINS=http://localhost:3000,https://app.example.com
 ```
+
+`ALLOWED_ORIGINS` is the CORS allowlist: a comma-separated list of the exact web
+origins (scheme + host + port) allowed to call the API from a browser. Native
+mobile clients send no `Origin` header, so CORS does not apply to them. It is
+required when `ENV=production`; in development it falls back to
+`http://localhost:3000` and `http://localhost:5173`.
 
 ## Setup
 

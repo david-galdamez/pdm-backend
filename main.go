@@ -11,22 +11,18 @@ import (
 )
 
 func main() {
-	config.Get()
+	cfg := config.Get()
 
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.Default()
 
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length", "Authorization"},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
-		AllowOriginFunc: func(origin string) bool {
-			return origin == "" || origin == "null"
-		},
+		AllowOrigins:  cfg.ALLOWED_ORIGINS,
+		AllowMethods:  []string{"GET", "POST", "PUT", "PATCH", "DELETE"},
+		AllowHeaders:  []string{"Origin", "Content-Type", "Authorization"},
+		ExposeHeaders: []string{"Content-Length", "Authorization"},
+		MaxAge:        12 * time.Hour,
 	}))
 	go websockets.HandleBroadCast()
 
@@ -41,5 +37,5 @@ func main() {
 	routes.SharedFinanceRouter(r)
 	websockets.WebSocketRouter(r)
 
-	r.Run(":" + config.Get().PORT)
+	r.Run(":" + cfg.PORT)
 }

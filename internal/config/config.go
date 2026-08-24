@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/joho/godotenv"
@@ -13,6 +14,22 @@ type Config struct {
 	ENV          string
 	DATABASE_URL string
 	JWT_SECRET   string
+	// ALLOWED_ORIGINS is the CORS allowlist. Native mobile clients send no
+	// Origin header and are unaffected by it; it only constrains browsers.
+	ALLOWED_ORIGINS []string
+}
+
+// splitAndTrim turns "a, b ,c" into ["a","b","c"], dropping empty entries.
+func splitAndTrim(value string) []string {
+	var out []string
+
+	for _, part := range strings.Split(value, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+
+	return out
 }
 
 func load() Config {
@@ -51,11 +68,28 @@ func load() Config {
 		log.Fatal("JWT_SECRET environment variable must be at least 32 characters long")
 	}
 
+	origins := splitAndTrim(os.Getenv("ALLOWED_ORIGINS"))
+	if len(origins) == 0 {
+		if env == "production" {
+			log.Fatal("ALLOWED_ORIGINS environment variable must be set in production (comma-separated list of web origins)")
+		}
+		origins = []string{"http://localhost:3000", "http://localhost:5173"}
+		log.Println("ALLOWED_ORIGINS environment variable is not set, using default development origins:", origins)
+	}
+
+	for _, origin := range origins {
+		if origin == "*" {
+			log.Fatal("ALLOWED_ORIGINS must not contain '*': list the exact web origins instead")
+		}
+	}
+
 	return Config{
 		PORT:         port,
 		ENV:          env,
 		DATABASE_URL: databaseURL,
 		JWT_SECRET:   secret,
+
+		ALLOWED_ORIGINS: origins,
 	}
 }
 
