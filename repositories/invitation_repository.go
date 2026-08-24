@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"errors"
 	"pdm-backend/models"
 	"pdm-backend/services"
 	"strings"
@@ -26,7 +27,7 @@ func (r *InvitationRepository) CreateInvite(financeId *uint) (*Invitation, error
 	var response Invitation
 	maxAttempts := 5
 
-	for i := 0; i < maxAttempts; i++ {
+	for range maxAttempts {
 
 		code, err := services.GenerateInvitationCode(10)
 		if err != nil {
@@ -42,14 +43,15 @@ func (r *InvitationRepository) CreateInvite(financeId *uint) (*Invitation, error
 		err = r.DB.Create(&invitation).Error
 		if err == nil {
 			response.Code = invitation.Code
-			break
+			return &response, nil
 		}
 
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") || strings.Contains(err.Error(), "duplicate key") {
+		// A collision on the generated code is worth another attempt; anything
+		// else is a real failure.
+		if !strings.Contains(err.Error(), "UNIQUE constraint failed") && !strings.Contains(err.Error(), "duplicate key") {
 			return nil, err
 		}
-
-		return nil, err
 	}
-	return &response, nil
+
+	return nil, errors.New("could not generate a unique invitation code")
 }

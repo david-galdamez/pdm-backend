@@ -21,6 +21,18 @@ func NewSharedFinanceRepository(db *gorm.DB) *SharedFinanceRepository {
 	return &SharedFinanceRepository{DB: db}
 }
 
+func (r *SharedFinanceRepository) DoesSharedFinanceExists(financeId uint) bool {
+	var sharedFinance models.Finance
+	err := r.DB.Where("id = ? AND finance_type_id = ?", financeId, models.FinanceTypeShared).First(&sharedFinance).Error
+	return err == nil
+}
+
+func (r *SharedFinanceRepository) UserBelongsToSharedFinance(userId, financeId uint) bool {
+	var sharedFinance models.SharedFinance
+	err := r.DB.Where("finance_id = ? AND user_id = ? AND active = ?", financeId, userId, true).First(&sharedFinance).Error
+	return err == nil
+}
+
 func (r *SharedFinanceRepository) CreateSharedFinance(userId uint, title, description string) error {
 
 	err := r.DB.Transaction(func(tx *gorm.DB) error {

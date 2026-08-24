@@ -2,6 +2,7 @@ package main
 
 import (
 	"pdm-backend/internal/config"
+	"pdm-backend/repositories"
 	"pdm-backend/routes"
 	"pdm-backend/websockets"
 	"time"
@@ -24,7 +25,10 @@ func main() {
 		ExposeHeaders: []string{"Content-Length", "Authorization"},
 		MaxAge:        12 * time.Hour,
 	}))
-	go websockets.HandleBroadCast()
+
+	sharedFinanceRepo := repositories.NewSharedFinanceRepository(repositories.GetDB())
+	handler := websockets.NewSharedFinanceWS(sharedFinanceRepo)
+	go handler.HandleBroadCast()
 
 	routes.UserRouter(r)
 	routes.FinanceRouter(r)
@@ -35,7 +39,7 @@ func main() {
 	routes.SavingRouter(r)
 	routes.InvitationRouter(r)
 	routes.SharedFinanceRouter(r)
-	websockets.WebSocketRouter(r)
+	websockets.WebSocketRouter(r, handler)
 
 	r.Run(":" + cfg.PORT)
 }
