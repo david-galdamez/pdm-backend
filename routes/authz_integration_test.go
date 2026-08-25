@@ -99,15 +99,18 @@ func newTestEngine() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 
 	r := gin.New()
-	UserRouter(r)
-	FinanceRouter(r)
-	CategoryRouter(r)
-	TransactionRouter(r)
-	SubcategoryRouter(r)
-	IncomeSourceRouter(r)
-	SavingRouter(r)
-	InvitationRouter(r)
-	SharedFinanceRouter(r)
+	// An empty-prefix group, not r.Group("/api"): the request paths below were
+	// written before main.go mounted routers under /api and assume no prefix.
+	root := r.Group("")
+	UserRouter(root)
+	FinanceRouter(root)
+	CategoryRouter(root)
+	TransactionRouter(root)
+	SubcategoryRouter(root)
+	IncomeSourceRouter(root)
+	SavingRouter(root)
+	InvitationRouter(root)
+	SharedFinanceRouter(root)
 
 	return r
 }

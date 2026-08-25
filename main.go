@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"pdm-backend/internal/config"
+	"pdm-backend/middlewares"
 	"pdm-backend/repositories"
 	"pdm-backend/routes"
 	"pdm-backend/websockets"
@@ -38,6 +39,8 @@ func main() {
 		ExposeHeaders: []string{"Content-Length", "Authorization"},
 		MaxAge:        12 * time.Hour,
 	}))
+
+	go middlewares.CleanupExpiredClients()
 
 	api.GET("/health", func(c *gin.Context) {
 		sqlDB, err := repositories.GetDB().DB()

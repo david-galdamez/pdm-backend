@@ -15,8 +15,11 @@ func UserRouter(r *gin.RouterGroup) {
 	handler := controllers.NewUserHandler(userRepo, financeRepo)
 
 	auth := r.Group("/auth")
-	auth.POST("/login", handler.Login)
-	auth.POST("/register", handler.Register)
+	auth.Use(middlewares.RateLimiter())
+	{
+		auth.POST("/login", handler.Login)
+		auth.POST("/register", handler.Register)
+	}
 
 	users := r.Group("/users")
 	users.Use(middlewares.AuthMiddleware(userRepo))

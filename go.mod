@@ -1,6 +1,6 @@
 module pdm-backend
 
-go 1.24.1
+go 1.25.0
 
 require (
 	github.com/gin-contrib/cors v1.7.5
@@ -10,6 +10,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.4
 	github.com/joho/godotenv v1.5.1
 	golang.org/x/crypto v0.38.0
+	golang.org/x/time v0.15.0
 	gorm.io/driver/postgres v1.5.11
 	gorm.io/gorm v1.26.1
 )
