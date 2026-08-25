@@ -85,18 +85,25 @@ type Identifiers struct {
 	SavingsID uint
 }
 
+// GetFinanceAndSavingSubcategoryByUserId resolves the ids that go into the
+// user's token. Registration creates both, so a miss means the account is
+// broken; reporting it beats minting a token carrying finance id 0.
 func (r *UserRepository) GetFinanceAndSavingSubcategoryByUserId(userId uint) (*Identifiers, error) {
 	var identifiers Identifiers
 
-	err := r.DB.Model(&models.Finance{}).
+	tx := r.DB.Model(&models.Finance{}).
 		Select("finances.id AS finance_id, expense_subcategories.id AS savings_id").
-		Joins("JOIN expense_subcategories ON finances.id = expense_subcategories.finance_id").
+		Joins("JOIN expense_subcategories ON finances.id = expense_subcategories.finance_id AND expense_subcategories.deleted_at IS NULL").
 		Where("finances.user_id = ? AND finances.finance_type_id = ? AND expense_subcategories.name = ?",
 			userId, models.FinanceTypePersonal, models.SavingsCategoryName).
-		Scan(&identifiers).Error
+		Scan(&identifiers)
 
-	if err != nil {
+	if err := tx.Error; err != nil {
 		return nil, err
+	}
+
+	if tx.RowsAffected == 0 {
+		return nil, gorm.ErrRecordNotFound
 	}
 
 	return &identifiers, nil

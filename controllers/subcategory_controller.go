@@ -68,10 +68,12 @@ func (h *SubcategoryHandler) GetSubcategoriesList(c *gin.Context) {
 }
 
 type SubcategoryRequest struct {
-	CategoryID   uint    `json:"category_id" binding:"required,gt=0"`
-	Name         string  `json:"name" binding:"required"`
-	BudgetTypeID uint    `json:"budget_type_id" binding:"required,gt=0"`
-	Budget       float64 `json:"budget" binding:"required,gte=0"`
+	CategoryID   uint   `json:"category_id" binding:"required,gt=0"`
+	Name         string `json:"name" binding:"required"`
+	BudgetTypeID uint   `json:"budget_type_id" binding:"required,gt=0"`
+	// No "required": that would reject the zero value the gte=0 is here to
+	// allow, making a budget of 0 impossible to set.
+	Budget float64 `json:"budget" binding:"gte=0"`
 }
 
 func (h *SubcategoryHandler) CreateSubcategory(c *gin.Context) {

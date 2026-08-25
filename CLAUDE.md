@@ -31,23 +31,35 @@ go test ./...                       # routes/authz_integration_test.go needs a
 Tracking against the 9-phase plan from the overhaul. Phases 1–6 are done and
 verified (rename, config, CORS, JWT, authorization, websockets). What's left:
 
-### Known bugs (small, do these first)
-- `controllers/saving_controller.go` `CreateSavingGoal`: compares
-  `goalRequest.Month < currentMonth` without checking the year, so a goal for
-  January of next year is wrongly rejected in the back half of this year.
-- `controllers/saving_controller.go` `GetSavingsData`: hardcodes
-  `year < 2025` instead of comparing against `time.Now().Year()`.
+### Known bugs — done
+Both savings date bugs are fixed and covered by
+`controllers/saving_controller_test.go`.
 
-### Validation gaps
-`TransactionRequest` has `binding:"required"` tags; almost nothing else does.
-Add `binding:"required"` / `gt=0` / `email` as appropriate to:
-- `RegisterRequest`, `LoginRequest` (user_controller.go) — empty
-  email/password currently succeeds.
-- `IncomeSourceRequest` — `amount: 0` or negative currently succeeds.
-- `CategoryRequest`, `UpdateProfileRequest` — empty `name`/`email` currently
-  succeeds.
-- Sweep `subcategory_controller.go` / `shared_finance_controller.go` request
-  structs for the same gap.
+### Validation gaps — done
+Every request struct now carries `binding` rules, and
+`controllers/binding_tags_test.go` guards them. Two traps worth remembering:
+- A space after a comma (`binding:"required, gt=0"`) makes validator look up a
+  rule named `" gt"`, which **panics** at request time. gofmt and go vet both
+  pass it. The test scans every request struct for padded rules.
+- `required` rejects a numeric zero, so `required,gte=0` can never accept 0.
+  Use `gte=0` alone when zero is a legal value.
+
+### Repository correctness — done
+Swept in the same pass, with integration coverage in `repositories/*_test.go`:
+- Aggregations never join a to-many table before `SUM`: joining transactions
+  before grouping multiplied budgets by the transaction count. Spend is a
+  correlated subquery instead (`GetCategoriesData`, `GetDataSummary`).
+- GORM only applies `deleted_at IS NULL` to the **primary** model, never to
+  `Joins(...)`. Every join condition spells the filter out by hand.
+- Check `tx.Error` **before** `tx.RowsAffected == 0`: a failed query also
+  reports zero rows, which turns a 500 into a silent 404.
+- `Scan` into a struct returns zero values and a nil error when nothing
+  matched; lookups that must find something check `RowsAffected` and return
+  `gorm.ErrRecordNotFound`.
+- Counters are incremented in the `UPDATE` (`gorm.Expr("amount + ?")`), never
+  read-modify-written in Go. Partial unique indexes on
+  `monthly_goals`/`monthly_savings`/`shared_finances` back the upserts; the
+  insert path falls back to an update on `IsUniqueViolation`.
 
 ### Docker & CI (not started)
 - `Dockerfile` (multi-stage, Go 1.24.1 per go.mod)
@@ -67,17 +79,33 @@ Add `binding:"required"` / `gt=0` / `email` as appropriate to:
   prod.
 
 ### Test coverage
-Strong for authz (`routes/authz_integration_test.go`,
-`middlewares/*_test.go`) and one GORM dry-run SQL test
-(`repositories/shared_finance_repository_test.go`). Thin everywhere else — no
-tests for dashboard aggregation math, savings goal computation, the three
-transaction-creation branches, or websocket dispatch itself.
+Strong for authz (`routes/authz_integration_test.go`, `middlewares/*_test.go`),
+for repository math and concurrency (`repositories/*_test.go`), and for request
+validation (`controllers/*_test.go`).
+
+`repositories/main_test.go` provisions its own `finance_app_repo_test` database
+(the `routes` suite truncates tables, and package test binaries run
+concurrently). Cases call `requireDB(t)`, which **skips** when no local
+Postgres answers, so `go test ./...` works without one — unlike the `routes`
+suite, which hard-fails. Override the server with `TEST_POSTGRES_DSN` (a format
+string with one `%s` for the database name).
+
+Still untested: websocket dispatch itself, and the transaction-creation
+branches end to end through the router.
 
 ## Conventions established during the refactor
 
 - Sentinel errors (`errors.Is`) over string-matching — see
   `repositories/shared_finance_repository.go`'s `ErrAlreadyMember` /
-  `ErrInviteExpired`.
+  `ErrInviteExpired` / `ErrAdminCannotLeave`. For driver errors use
+  `repositories.IsUniqueViolation` (SQLSTATE 23505), never `strings.Contains`
+  on the message.
+- Client-supplied ids are re-read scoped to the authorized finance before they
+  are written onto a record — `TransactionRepo.GetIds(subcategoryId,
+  financeId)`, `IncomeSourceBelongsToFinance`. Passing the id straight through
+  lets one finance write against another's rows.
+- Writes that belong together go in one `db.Transaction` — see
+  `CreateTransactionWithSaving`.
 - Seeded lookup IDs and the `"Savings"` category name are named constants in
   `models/constants.go`, never bare numbers or string literals in queries.
 - Finance-scoped endpoints never trust `?finance_id=` directly — they read it

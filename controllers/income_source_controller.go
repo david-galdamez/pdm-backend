@@ -59,7 +59,7 @@ func (h *IncomeSourceHandler) GetIncomeSourceById(c *gin.Context) {
 type IncomeSourceRequest struct {
 	Name        string  `json:"name" binding:"required"`
 	Description string  `json:"description" binding:"required"`
-	Amount      float64 `json:"amount" binding:"required"`
+	Amount      float64 `json:"amount" binding:"required,gt=0"`
 }
 
 func (h *IncomeSourceHandler) CreateIncomeSource(c *gin.Context) {

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"pdm-backend/models"
 	"pdm-backend/services"
-	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -48,7 +47,7 @@ func (r *InvitationRepository) CreateInvite(financeId uint) (*Invitation, error)
 
 		// A collision on the generated code is worth another attempt; anything
 		// else is a real failure.
-		if !strings.Contains(err.Error(), "UNIQUE constraint failed") && !strings.Contains(err.Error(), "duplicate key") {
+		if !IsUniqueViolation(err) {
 			return nil, err
 		}
 	}

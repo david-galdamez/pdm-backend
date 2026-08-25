@@ -6,7 +6,6 @@ import (
 	"pdm-backend/models"
 	"pdm-backend/repositories"
 	"pdm-backend/services"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -55,7 +54,7 @@ func (h *UserHandler) Register(c *gin.Context) {
 	err = h.UserRepo.CreateUserAndFinance(&newUser)
 
 	if err != nil {
-		if strings.Contains(err.Error(), "unique constraint") {
+		if repositories.IsUniqueViolation(err) {
 			c.JSON(http.StatusConflict, gin.H{"success": false, "message": "That email address is already registered"})
 			return
 		}

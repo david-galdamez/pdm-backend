@@ -42,11 +42,6 @@ type SubcategoryBreakdown struct {
 	Difference float64 `json:"subcategory_difference"`
 }
 
-type CategoryTotals struct {
-	Budget float64
-	Spent  float64
-}
-
 type CategoryBreakdown struct {
 	Budget        float64                `json:"total_budget"`
 	Spent         float64                `json:"total_spent"`
@@ -54,74 +49,68 @@ type CategoryBreakdown struct {
 	Subcategories []SubcategoryBreakdown `json:"subcategories"`
 }
 
+// GetCategoriesData breaks a category down into its subcategories with each
+// one's budget and what has been spent against it this month.
+//
+// The spend is a correlated subquery rather than a join. Joining transactions
+// before aggregating fans each subcategory out into one row per transaction,
+// which multiplies SUM(monthly_budget) by the transaction count, and the
+// category totals are then summed in Go instead of asking the database for a
+// GROUP BY whose rows would have to be collapsed anyway.
 func (r *CategoryRepository) GetCategoriesData(financeId uint, categoryId *uint) (*CategoryBreakdown, error) {
 
-	var totals CategoryTotals
-	var subcategories []SubcategoryBreakdown
-	errCh := make(chan error, 2)
+	subcategories := []SubcategoryBreakdown{}
 
 	now := time.Now()
 	month := int(now.Month())
 	year := now.Year()
+	monthStart := time.Date(year, now.Month(), 1, 0, 0, 0, 0, now.Location())
+	monthEnd := monthStart.AddDate(0, 1, 0)
 
-	baseQuery := func(tx *gorm.DB) *gorm.DB {
-		q := tx.Where("expense_subcategories.finance_id = ?", financeId)
-		if categoryId != nil {
-			q = q.Where("expense_subcategories.expense_category_id = ?", *categoryId)
-		}
-		return q
+	query := r.DB.Model(models.ExpenseSubcategory{}).
+		Where("expense_subcategories.finance_id = ?", financeId)
+
+	if categoryId != nil {
+		query = query.Where("expense_subcategories.expense_category_id = ?", *categoryId)
 	}
 
-	go func() {
-		err := baseQuery(r.DB.Model(models.ExpenseSubcategory{})).
-			Select(`
-			CASE
-				WHEN expense_subcategories.name = ? THEN MAX(monthly_goals.target_amount)
-				ELSE COALESCE(SUM(expense_subcategories.monthly_budget),0)
-			END AS budget,
-			COALESCE(SUM(transactions.amount), 0) AS spent`, models.SavingsCategoryName).
-			Joins("LEFT JOIN monthly_goals ON monthly_goals.finance_id = expense_subcategories.finance_id AND monthly_goals.month = ? AND monthly_goals.year = ?", month, year).
-			Joins("LEFT JOIN transactions ON transactions.expense_subcategory_id = expense_subcategories.id").
-			Group("expense_subcategories.id").Scan(&totals).Error
-		errCh <- err
-	}()
+	err := query.
+		Select(`
+		expense_subcategories.name AS name,
+		CASE
+			WHEN expense_subcategories.name = ? THEN COALESCE(monthly_goals.target_amount, 0)
+			ELSE expense_subcategories.monthly_budget
+		END AS budget,
+		COALESCE((
+			SELECT SUM(spend.amount)
+			FROM transactions AS spend
+			WHERE spend.expense_subcategory_id = expense_subcategories.id
+			AND spend.entry_type_id = ?
+			AND spend.occurred_at >= ?
+			AND spend.occurred_at < ?
+			AND spend.deleted_at IS NULL
+		), 0) AS spent`, models.SavingsCategoryName, models.EntryTypeExpense, monthStart, monthEnd).
+		Joins(`LEFT JOIN monthly_goals
+			ON monthly_goals.finance_id = expense_subcategories.finance_id
+			AND monthly_goals.month = ? AND monthly_goals.year = ?
+			AND monthly_goals.deleted_at IS NULL`, month, year).
+		Order("expense_subcategories.name").
+		Scan(&subcategories).Error
 
-	go func() {
-		err := baseQuery(r.DB.Model(models.ExpenseSubcategory{})).
-			Select(`
-			expense_subcategories.name AS name,
-			CASE
-				WHEN expense_subcategories.name = ? THEN MAX(monthly_goals.target_amount)
-				ELSE COALESCE(SUM(expense_subcategories.monthly_budget),0)
-			END AS budget,
-			COALESCE(SUM(transactions.amount),0) AS spent`, models.SavingsCategoryName).
-			Joins("LEFT JOIN transactions ON transactions.expense_subcategory_id = expense_subcategories.id").
-			Joins("LEFT JOIN monthly_goals ON monthly_goals.finance_id = expense_subcategories.finance_id AND monthly_goals.month = ? AND monthly_goals.year = ?", month, year).
-			Group("expense_subcategories.id").Scan(&subcategories).Error
-		errCh <- err
-	}()
-
-	for i := 0; i < 2; i++ {
-		if err := <-errCh; err != nil {
-			return nil, err
-		}
+	if err != nil {
+		return nil, err
 	}
+
+	breakdown := CategoryBreakdown{Subcategories: subcategories}
 
 	for index := range subcategories {
 		subcategories[index].Difference = subcategories[index].Budget - subcategories[index].Spent
+
+		breakdown.Budget += subcategories[index].Budget
+		breakdown.Spent += subcategories[index].Spent
 	}
 
-	breakdown := CategoryBreakdown{
-		Budget:     totals.Budget,
-		Spent:      totals.Spent,
-		Difference: totals.Budget - totals.Spent,
-	}
-
-	if subcategories == nil {
-		breakdown.Subcategories = []SubcategoryBreakdown{}
-	} else {
-		breakdown.Subcategories = subcategories
-	}
+	breakdown.Difference = breakdown.Budget - breakdown.Spent
 
 	return &breakdown, nil
 }
@@ -153,7 +142,7 @@ func (r *CategoryRepository) GetCategoriesList(financeId uint) ([]CategoryListIt
 
 	err := r.DB.Model(models.ExpenseCategory{}).Where("finance_id = ?", financeId).
 		Select("expense_categories.id AS category_id, expense_categories.name AS category_name, users.name AS user_name").
-		Joins("LEFT JOIN users ON users.id = expense_categories.user_id").
+		Joins("LEFT JOIN users ON users.id = expense_categories.user_id AND users.deleted_at IS NULL").
 		Scan(&categories).Error
 
 	if err != nil {

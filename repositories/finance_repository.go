@@ -53,8 +53,9 @@ func (r *FinanceRepository) GetFinanceSummary(financeId uint, from, to time.Time
 
 	var summary Summary
 	err := r.DB.Model(&models.Transaction{}).
-		Select("SUM(CASE WHEN entry_type_id = 1 THEN amount ELSE 0 END) AS total_income, SUM(CASE WHEN entry_type_id = 2 THEN amount ELSE 0 END) AS total_expense").
-		Where("finance_id = ? AND occurred_at >= ? AND occurred_at < ? AND deleted_at IS NULL", financeId, from, to).
+		Select("COALESCE(SUM(CASE WHEN entry_type_id = ? THEN amount ELSE 0 END), 0) AS total_income, COALESCE(SUM(CASE WHEN entry_type_id = ? THEN amount ELSE 0 END), 0) AS total_expense",
+			models.EntryTypeIncome, models.EntryTypeExpense).
+		Where("finance_id = ? AND occurred_at >= ? AND occurred_at < ?", financeId, from, to).
 		Scan(&summary).Error
 	if err != nil {
 		return nil, err
@@ -71,32 +72,19 @@ func (r *FinanceRepository) GetFinanceSummary(financeId uint, from, to time.Time
 
 func (r *FinanceRepository) GetExpenseSummary(financeId uint, from, to time.Time) (gin.H, error) {
 
-	var totalExpense, monthlyBudget float64
-	errCh := make(chan error, 2)
+	var monthlyBudget float64
 
-	go func() {
-		err := r.DB.Model(models.ExpenseSubcategory{}).
-			Where("finance_id = ?", financeId).
-			Select("COALESCE(SUM(monthly_budget), 0)").
-			Scan(&monthlyBudget).Error
+	err := r.DB.Model(models.ExpenseSubcategory{}).
+		Where("finance_id = ?", financeId).
+		Select("COALESCE(SUM(monthly_budget), 0)").
+		Scan(&monthlyBudget).Error
+	if err != nil {
+		return nil, err
+	}
 
-		errCh <- err
-	}()
-
-	go func() {
-		amount, err := SumAmount(r.DB, models.Transaction{}, financeId, int(models.EntryTypeExpense), from, to)
-
-		if err == nil {
-			totalExpense = amount
-		}
-
-		errCh <- err
-	}()
-
-	for i := 0; i < 2; i++ {
-		if err := <-errCh; err != nil {
-			return nil, err
-		}
+	totalExpense, err := SumAmount(r.DB, models.Transaction{}, financeId, int(models.EntryTypeExpense), from, to)
+	if err != nil {
+		return nil, err
 	}
 
 	variance := monthlyBudget - totalExpense
@@ -109,36 +97,23 @@ func (r *FinanceRepository) GetExpenseSummary(financeId uint, from, to time.Time
 }
 
 func (r *FinanceRepository) GetSavingsSummary(financeId uint, month, year int) (gin.H, error) {
-	var targetAmount float64
 	var savedAmount float64
-
 	var goal models.MonthlyGoal
-	errCh := make(chan error, 2)
 
-	go func() {
-		err := r.DB.Model(models.MonthlyGoal{}).Where("finance_id = ? AND month = ? AND year = ?", financeId, month, year).
-			First(&goal).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			errCh <- nil
-			return
-		}
-		errCh <- err
-	}()
-
-	go func() {
-		err := r.DB.Model(models.MonthlySaving{}).
-			Where("finance_id = ? AND month = ? AND year = ?", financeId, month, year).
-			Select("amount").Scan(&savedAmount).Error
-		errCh <- err
-	}()
-
-	for i := 0; i < 2; i++ {
-		if err := <-errCh; err != nil {
-			return nil, err
-		}
+	err := r.DB.Model(models.MonthlyGoal{}).Where("finance_id = ? AND month = ? AND year = ?", financeId, month, year).
+		First(&goal).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
 	}
 
-	targetAmount = goal.TargetAmount
+	err = r.DB.Model(models.MonthlySaving{}).
+		Where("finance_id = ? AND month = ? AND year = ?", financeId, month, year).
+		Select("COALESCE(amount, 0)").Scan(&savedAmount).Error
+	if err != nil {
+		return nil, err
+	}
+
+	targetAmount := goal.TargetAmount
 	progress := 0.0
 
 	if targetAmount != 0 {
@@ -210,12 +185,31 @@ type DashboardData struct {
 
 func (r *FinanceRepository) GetDataSummary(monthStart, monthEnd time.Time, financeId uint) ([]DashboardData, error) {
 
-	var results []DashboardData
+	results := []DashboardData{}
 
+	// Budget and spend are correlated subqueries rather than joins: joining
+	// both would fan each category out into one row per subcategory per
+	// transaction, and it keeps the whole breakdown to a single query instead
+	// of one per category.
 	err := r.DB.Model(models.ExpenseCategory{}).Where("expense_categories.finance_id = ?", financeId).
-		Select("expense_categories.id AS category_id, expense_categories.name AS category_name, COALESCE(SUM(expense_subcategories.monthly_budget), 0) AS total_budget").
-		Joins("LEFT JOIN expense_subcategories ON expense_subcategories.expense_category_id = expense_categories.id").
-		Group("expense_categories.id, expense_categories.name").
+		Select(`
+		expense_categories.id AS category_id,
+		expense_categories.name AS category_name,
+		COALESCE((
+			SELECT SUM(sub.monthly_budget)
+			FROM expense_subcategories AS sub
+			WHERE sub.expense_category_id = expense_categories.id
+			AND sub.deleted_at IS NULL
+		), 0) AS total_budget,
+		COALESCE((
+			SELECT SUM(spend.amount)
+			FROM transactions AS spend
+			WHERE spend.expense_category_id = expense_categories.id
+			AND spend.entry_type_id = ?
+			AND spend.occurred_at >= ?
+			AND spend.occurred_at < ?
+			AND spend.deleted_at IS NULL
+		), 0) AS spent`, models.EntryTypeExpense, monthStart, monthEnd).
 		Order("expense_categories.name").
 		Scan(&results).Error
 	if err != nil {
@@ -225,47 +219,43 @@ func (r *FinanceRepository) GetDataSummary(monthStart, monthEnd time.Time, finan
 	month := int(monthStart.Month())
 	year := monthStart.Year()
 
+	// The savings category does not track a subcategory budget: its budget is
+	// the month's goal and its spend is the month's accumulated saving.
+	var savingsGoal, savingsAmount float64
+	var needSavings bool
+
 	for index := range results {
-
-		results[index].FinanceID = financeId
-
 		if results[index].CategoryName == models.SavingsCategoryName {
-			var goal models.MonthlyGoal
-			err := r.DB.Model(models.MonthlyGoal{}).
-				Where("finance_id = ? AND month = ? AND year = ?", financeId, month, year).
-				First(&goal).Error
-			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, err
-			}
-
-			var monthlySaving models.MonthlySaving
-			err = r.DB.Model(models.MonthlySaving{}).
-				Where("finance_id = ? AND month = ? AND year = ?", financeId, month, year).
-				First(&monthlySaving).Error
-			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, err
-			}
-
-			results[index].TotalBudget = goal.TargetAmount
-			results[index].Spent = monthlySaving.Amount
-			results[index].Difference = goal.TargetAmount - monthlySaving.Amount
-
-			continue
+			needSavings = true
+			break
 		}
+	}
 
-		var totalSpent float64
-
-		err := r.DB.Model(models.Transaction{}).
-			Where("finance_id = ? AND entry_type_id = ? AND occurred_at >= ? AND occurred_at < ? AND expense_category_id = ?",
-				financeId, models.EntryTypeExpense, monthStart, monthEnd, results[index].CategoryID).
-			Select("COALESCE(SUM(amount), 0)").Scan(&totalSpent).Error
-
+	if needSavings {
+		err = r.DB.Model(models.MonthlyGoal{}).
+			Where("finance_id = ? AND month = ? AND year = ?", financeId, month, year).
+			Select("COALESCE(target_amount, 0)").Scan(&savingsGoal).Error
 		if err != nil {
 			return nil, err
 		}
 
-		results[index].Spent = totalSpent
-		results[index].Difference = results[index].TotalBudget - totalSpent
+		err = r.DB.Model(models.MonthlySaving{}).
+			Where("finance_id = ? AND month = ? AND year = ?", financeId, month, year).
+			Select("COALESCE(amount, 0)").Scan(&savingsAmount).Error
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	for index := range results {
+		results[index].FinanceID = financeId
+
+		if results[index].CategoryName == models.SavingsCategoryName {
+			results[index].TotalBudget = savingsGoal
+			results[index].Spent = savingsAmount
+		}
+
+		results[index].Difference = results[index].TotalBudget - results[index].Spent
 	}
 
 	return results, nil

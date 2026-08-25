@@ -23,7 +23,7 @@ func (h *SavingHandler) GetSavingsData(c *gin.Context) {
 	yearParam := c.Query("year")
 
 	year, err := strconv.Atoi(yearParam)
-	if err != nil || year < 2025 {
+	if err != nil || year < time.Now().Year() {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The year cannot be earlier than the current one"})
 		return
 	}
@@ -57,13 +57,15 @@ func (h *SavingHandler) CreateSavingGoal(c *gin.Context) {
 	now := time.Now()
 	currentMonth := int(now.Month())
 
-	if goalRequest.Month < currentMonth {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The month cannot be earlier than the current one"})
+	// Range first: comparing an out-of-range month against currentMonth below
+	// would judge it before we know it is a month at all.
+	if goalRequest.Month < 1 || goalRequest.Month > 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Enter a valid month"})
 		return
 	}
 
-	if goalRequest.Month < 1 || goalRequest.Month > 12 {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Enter a valid month"})
+	if goalRequest.Year < now.Year() || (goalRequest.Year == now.Year() && goalRequest.Month < currentMonth) {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "The month cannot be earlier than the current one"})
 		return
 	}
 

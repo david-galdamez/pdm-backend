@@ -49,7 +49,7 @@ func (r *IncomeSourceRepository) GetIncomeSourcesList(financeId uint) ([]IncomeS
 
 	err := r.DB.Model(models.IncomeSource{}).Where("finance_id = ?", financeId).
 		Select("income_sources.finance_id AS finance_id, income_sources.id AS income_source_id, income_sources.name AS name, income_sources.amount AS amount, users.name AS user_name").
-		Joins("LEFT JOIN users ON users.id = income_sources.user_id").
+		Joins("LEFT JOIN users ON users.id = income_sources.user_id AND users.deleted_at IS NULL").
 		Scan(&list).Error
 
 	if err != nil {
@@ -87,12 +87,13 @@ func (r *IncomeSourceRepository) GetIncomeSource(id *uint, financeId uint) (*Inc
 		Select("income_sources.id AS income_source_id, income_sources.name AS name, income_sources.amount AS amount, income_sources.description AS description").
 		Scan(&response)
 
-	if tx.RowsAffected == 0 {
-		return nil, gorm.ErrRecordNotFound
-	}
-
+	// Error before RowsAffected: a failed query also reports zero rows.
 	if err := tx.Error; err != nil {
 		return nil, err
+	}
+
+	if tx.RowsAffected == 0 {
+		return nil, gorm.ErrRecordNotFound
 	}
 
 	return &response, nil

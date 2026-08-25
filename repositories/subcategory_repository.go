@@ -39,6 +39,7 @@ func (r *SubcategoryRepository) GetSubcategories(financeId uint) ([]FinanceSubca
 		`, models.SavingsCategoryName).
 		Joins(`LEFT JOIN monthly_goals ON monthly_goals.finance_id = expense_subcategories.finance_id
 		AND monthly_goals.month = ? AND monthly_goals.year = ?
+		AND monthly_goals.deleted_at IS NULL
 		`, month, year).
 		Scan(&subcategories).Error
 
@@ -96,10 +97,10 @@ func (r *SubcategoryRepository) GetSubcategoriesList(financeId uint) ([]Subcateg
 			ELSE expense_subcategories.monthly_budget
 		END AS budget,
 		users.name AS user_name`, models.SavingsCategoryName).
-		Joins("LEFT JOIN expense_categories ON expense_subcategories.expense_category_id = expense_categories.id").
-		Joins("LEFT JOIN monthly_goals ON monthly_goals.finance_id = expense_subcategories.finance_id AND monthly_goals.month = ? AND monthly_goals.year = ?", month, year).
-		Joins("LEFT JOIN budget_types ON expense_subcategories.budget_type_id = budget_types.id").
-		Joins("LEFT JOIN users ON expense_subcategories.user_id = users.id").
+		Joins("LEFT JOIN expense_categories ON expense_subcategories.expense_category_id = expense_categories.id AND expense_categories.deleted_at IS NULL").
+		Joins("LEFT JOIN monthly_goals ON monthly_goals.finance_id = expense_subcategories.finance_id AND monthly_goals.month = ? AND monthly_goals.year = ? AND monthly_goals.deleted_at IS NULL", month, year).
+		Joins("LEFT JOIN budget_types ON expense_subcategories.budget_type_id = budget_types.id AND budget_types.deleted_at IS NULL").
+		Joins("LEFT JOIN users ON expense_subcategories.user_id = users.id AND users.deleted_at IS NULL").
 		Scan(&subcategories).Error
 
 	if err != nil {
@@ -149,15 +150,16 @@ func (r *SubcategoryRepository) GetSubcategory(id *uint, financeId uint) (*Subca
 			ELSE expense_subcategories.monthly_budget
 		END AS budget
 		`, models.SavingsCategoryName).
-		Joins("LEFT JOIN monthly_goals ON monthly_goals.finance_id = expense_subcategories.finance_id AND monthly_goals.month = ? AND monthly_goals.year = ?", month, year).
+		Joins("LEFT JOIN monthly_goals ON monthly_goals.finance_id = expense_subcategories.finance_id AND monthly_goals.month = ? AND monthly_goals.year = ? AND monthly_goals.deleted_at IS NULL", month, year).
 		Scan(&subcategory)
+
+	// Error before RowsAffected: a failed query also reports zero rows.
+	if err := tx.Error; err != nil {
+		return nil, err
+	}
 
 	if tx.RowsAffected == 0 {
 		return nil, gorm.ErrRecordNotFound
-	}
-
-	if err := tx.Error; err != nil {
-		return nil, err
 	}
 
 	return &subcategory, nil

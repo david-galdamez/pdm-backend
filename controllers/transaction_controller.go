@@ -88,7 +88,7 @@ func (h *TransactionHandler) GetTransactionById(c *gin.Context) {
 type TransactionRequest struct {
 	EntryTypeID uint       `json:"entry_type_id" binding:"required"`
 	MovementID  uint       `json:"movement_id" binding:"required"`
-	Amount      float64    `json:"amount" binding:"required"`
+	Amount      float64    `json:"amount" binding:"required,gt=0"`
 	Description string     `json:"description"`
 	OccurredAt  *time.Time `json:"occurred_at" binding:"required"`
 }
@@ -172,13 +172,31 @@ func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
 
 	switch transactionRequest.EntryTypeID {
 	case models.EntryTypeIncome:
+		// The movement id comes from the client, so it has to be confirmed
+		// against this finance before it is written onto the transaction.
+		belongs, err := h.TransactionRepo.IncomeSourceBelongsToFinance(transactionRequest.MovementID, financeId)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "An error occurred while resolving the income source"})
+			return
+		}
+
+		if !belongs {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "That income source was not found"})
+			return
+		}
+
 		transaction.IncomeSourceID = &transactionRequest.MovementID
 
 	case models.EntryTypeExpense:
 		transaction.ExpenseSubcategoryID = &transactionRequest.MovementID
 
-		identifiers, err := h.TransactionRepo.GetIds(*transaction.ExpenseSubcategoryID)
+		identifiers, err := h.TransactionRepo.GetIds(*transaction.ExpenseSubcategoryID, financeId)
 		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "That subcategory was not found"})
+				return
+			}
+
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "An error occurred while resolving the category identifiers"})
 			return
 		}
@@ -191,16 +209,11 @@ func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
 		return
 	}
 
-	if err := h.TransactionRepo.CreateTransaction(&transaction); err != nil {
+	isSaving := transaction.ExpenseSubcategoryID != nil && *transaction.ExpenseSubcategoryID == savingsId
+
+	if err := h.TransactionRepo.CreateTransactionWithSaving(&transaction, isSaving); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "An error occurred while creating the transaction"})
 		return
-	}
-
-	if transaction.ExpenseSubcategoryID != nil && *transaction.ExpenseSubcategoryID == savingsId {
-		if err := h.TransactionRepo.CreateOrUpdateSaving(financeId, transaction.Amount, transaction.OccurredAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "An error occurred while recording the monthly saving"})
-			return
-		}
 	}
 
 	if isSharedFinance {

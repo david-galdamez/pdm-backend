@@ -108,6 +108,11 @@ func (h *SharedFinanceHandler) GetSharedFinanceDetails(c *gin.Context) {
 
 	details, err := h.SharedFinanceRepo.GetSharedFinanceDetails(financeId)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "That finance was not found"})
+			return
+		}
+
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "An error occurred while fetching the finance details"})
 		return
 	}
@@ -128,6 +133,11 @@ func (h *SharedFinanceHandler) RemoveUserFromFinance(c *gin.Context) {
 	if err := h.SharedFinanceRepo.LeaveSharedFinance(*userId, financeId); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "That user is not a member of this finance"})
+			return
+		}
+
+		if errors.Is(err, repositories.ErrAdminCannotLeave) {
+			c.JSON(http.StatusConflict, gin.H{"success": false, "message": "The finance administrator cannot be removed from the finance"})
 			return
 		}
 
@@ -157,6 +167,11 @@ func (h *SharedFinanceHandler) LeaveSharedFinance(c *gin.Context) {
 	if err := h.SharedFinanceRepo.LeaveSharedFinance(userClaims.UserID, *financeId); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "You are not a member of this finance"})
+			return
+		}
+
+		if errors.Is(err, repositories.ErrAdminCannotLeave) {
+			c.JSON(http.StatusConflict, gin.H{"success": false, "message": err.Error()})
 			return
 		}
 
