@@ -40,9 +40,9 @@ func (h *SavingHandler) GetSavingsData(c *gin.Context) {
 }
 
 type SavingGoalRequest struct {
-	Amount float64 `json:"amount"`
-	Month  int     `json:"month"`
-	Year   int     `json:"year"`
+	Amount float64 `json:"amount" binding:"required"`
+	Month  int     `json:"month" binding:"required"`
+	Year   int     `json:"year" binding:"required"`
 }
 
 func (h *SavingHandler) CreateSavingGoal(c *gin.Context) {

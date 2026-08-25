@@ -26,9 +26,9 @@ func NewUserHandler(userRepo *repositories.UserRepository, financeRepo *reposito
 }
 
 type RegisterRequest struct {
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Name     string `json:"name" binding:"required"`
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required,min=8"`
 }
 
 func (h *UserHandler) Register(c *gin.Context) {
@@ -67,8 +67,8 @@ func (h *UserHandler) Register(c *gin.Context) {
 }
 
 type LoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required"`
 }
 
 func (h *UserHandler) Login(c *gin.Context) {
@@ -116,8 +116,8 @@ func (h *UserHandler) Login(c *gin.Context) {
 }
 
 type UpdateProfileRequest struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
+	Name  string `json:"name" binding:"required"`
+	Email string `json:"email" binding:"required,email"`
 }
 
 func (h *UserHandler) UpdateProfile(c *gin.Context) {
@@ -160,9 +160,9 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 }
 
 type UpdatePasswordRequest struct {
-	CurrentPassword string `json:"current_password"`
-	NewPassword     string `json:"new_password"`
-	ConfirmPassword string `json:"confirm_password"`
+	CurrentPassword string `json:"current_password" binding:"required"`
+	NewPassword     string `json:"new_password" binding:"required,min=8"`
+	ConfirmPassword string `json:"confirm_password" binding:"required"`
 }
 
 func (h *UserHandler) UpdatePassword(c *gin.Context) {

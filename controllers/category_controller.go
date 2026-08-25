@@ -53,7 +53,7 @@ func (h *CategoryHandler) GetCategoriesData(c *gin.Context) {
 }
 
 type CategoryRequest struct {
-	Name string `json:"name"`
+	Name string `json:"name" binding:"required"`
 }
 
 func (h *CategoryHandler) CreateCategory(c *gin.Context) {

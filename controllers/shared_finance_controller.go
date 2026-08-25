@@ -20,8 +20,8 @@ func NewSharedFinanceHandler(sharedFinanceRepo *repositories.SharedFinanceReposi
 }
 
 type CreateSharedFinanceRequest struct {
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	Title       string `json:"title" binding:"required"`
+	Description string `json:"description" binding:"required"`
 }
 
 func (h *SharedFinanceHandler) CreateSharedFinance(c *gin.Context) {
@@ -49,7 +49,7 @@ func (h *SharedFinanceHandler) CreateSharedFinance(c *gin.Context) {
 }
 
 type JoinRequest struct {
-	Code string `json:"code"`
+	Code string `json:"code" binding:"required"`
 }
 
 func (h *SharedFinanceHandler) JoinUser(c *gin.Context) {
