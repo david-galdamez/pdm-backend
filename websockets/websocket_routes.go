@@ -7,14 +7,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func WebSocketRouter(r *gin.Engine, handler *SharedFinanceWS) {
+func WebSocketRouter(r *gin.RouterGroup, handler *SharedFinanceWS) {
 
 	authRepo := repositories.NewUserRepository(repositories.GetDB())
+	accessRepo := repositories.NewFinanceAccessRepository(repositories.GetDB())
 
 	webSocket := r.Group("/ws")
 	webSocket.Use(middlewares.AuthMiddleware(authRepo))
 	{
 
-		webSocket.GET("/finances/:id", handler.HandleConnection)
+		webSocket.GET("/finances/:id", middlewares.FinanceAccessFromParam(accessRepo, "id"), handler.HandleConnection)
 	}
 }

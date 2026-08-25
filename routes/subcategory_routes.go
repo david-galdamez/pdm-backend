@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SubcategoryRouter(r *gin.Engine) {
+func SubcategoryRouter(r *gin.RouterGroup) {
 
 	subcategoryRepo := repositories.NewSubcategoryRepository(repositories.GetDB())
 	handler := controllers.NewSubcategoryHandler(subcategoryRepo)

@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SavingRouter(r *gin.Engine) {
+func SavingRouter(r *gin.RouterGroup) {
 
 	savingRepo := repositories.NewSavingRepository(repositories.GetDB())
 	handler := controllers.NewSavingHandler(savingRepo)

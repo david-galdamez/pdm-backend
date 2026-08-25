@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func InvitationRouter(r *gin.Engine) {
+func InvitationRouter(r *gin.RouterGroup) {
 
 	invitationRepo := repositories.NewInvitationRepository(repositories.GetDB())
 	handler := controllers.NewInvitationHandler(invitationRepo)

@@ -11,12 +11,15 @@ import (
 	"pdm-backend/repositories"
 	"pdm-backend/routes"
 	"pdm-backend/websockets"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
+
+var wg sync.WaitGroup
 
 func main() {
 	cfg := config.Get()
@@ -26,8 +29,9 @@ func main() {
 	}
 
 	r := gin.Default()
+	api := r.Group("/api")
 
-	r.Use(cors.New(cors.Config{
+	api.Use(cors.New(cors.Config{
 		AllowOrigins:  cfg.ALLOWED_ORIGINS,
 		AllowMethods:  []string{"GET", "POST", "PUT", "PATCH", "DELETE"},
 		AllowHeaders:  []string{"Origin", "Content-Type", "Authorization"},
@@ -35,24 +39,37 @@ func main() {
 		MaxAge:        12 * time.Hour,
 	}))
 
-	r.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	api.GET("/health", func(c *gin.Context) {
+		sqlDB, err := repositories.GetDB().DB()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "Database connection error"})
+			return
+		}
+
+		if err := sqlDB.Ping(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "Database ping error"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "Server is healthy"})
 	})
 
+	doneWS := make(chan struct{})
+
 	sharedFinanceRepo := repositories.NewSharedFinanceRepository(repositories.GetDB())
-	handler := websockets.NewSharedFinanceWS(sharedFinanceRepo)
+	handler := websockets.NewSharedFinanceWS(sharedFinanceRepo, &wg, doneWS)
 	go handler.HandleBroadCast()
 
-	routes.UserRouter(r)
-	routes.FinanceRouter(r)
-	routes.CategoryRouter(r)
-	routes.TransactionRouter(r)
-	routes.SubcategoryRouter(r)
-	routes.IncomeSourceRouter(r)
-	routes.SavingRouter(r)
-	routes.InvitationRouter(r)
-	routes.SharedFinanceRouter(r)
-	websockets.WebSocketRouter(r, handler)
+	routes.UserRouter(api)
+	routes.FinanceRouter(api)
+	routes.CategoryRouter(api)
+	routes.TransactionRouter(api)
+	routes.SubcategoryRouter(api)
+	routes.IncomeSourceRouter(api)
+	routes.SavingRouter(api)
+	routes.InvitationRouter(api)
+	routes.SharedFinanceRouter(api)
+	websockets.WebSocketRouter(api, handler)
 
 	s := &http.Server{
 		Addr:         ":" + cfg.PORT,
@@ -64,7 +81,7 @@ func main() {
 
 	go func() {
 		if err := s.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("Listen: %s\n", err)
+			log.Fatalf("\nListen: %s\n", err)
 		}
 	}()
 
@@ -72,13 +89,27 @@ func main() {
 
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("Shutting down server...")
+	log.Println("\nShutting down server...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	close(doneWS)
 	if err := s.Shutdown(ctx); err != nil {
-		log.Println("Server shutdown:", err)
+		log.Println("HTTP Server shutdown:", err)
 	}
-	log.Println("Server exiting")
+
+	// Channel that tracks when the websocket connections are closed
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Println("All websocket connections closed")
+	case <-ctx.Done():
+		log.Println("Shutdown timeout reached, forcing websocket connections to close")
+	}
 }

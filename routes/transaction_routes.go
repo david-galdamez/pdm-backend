@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TransactionRouter(r *gin.Engine) {
+func TransactionRouter(r *gin.RouterGroup) {
 	transactionRepo := repositories.NewTransactionRepository(repositories.GetDB())
 	handler := controllers.NewTransactionHandler(transactionRepo)
 

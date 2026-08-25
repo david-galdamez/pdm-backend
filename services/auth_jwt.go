@@ -50,7 +50,7 @@ func GenerateJWT(userId uint, userName string, userEmail string, financeId, savi
 func ValidateJWT(tokenString string) (*jwt.Token, *JWTClaims, error) {
 	claims := &JWTClaims{}
 
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("invalid signing method: %v", token.Header["alg"])
 		}

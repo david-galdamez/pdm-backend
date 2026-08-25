@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func IncomeSourceRouter(r *gin.Engine) {
+func IncomeSourceRouter(r *gin.RouterGroup) {
 
 	incomeSourceRepo := repositories.NewIncomeSourceRepository(repositories.GetDB())
 	handler := controllers.NewIncomeSourceHandler(incomeSourceRepo)

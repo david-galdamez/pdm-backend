@@ -6,8 +6,8 @@ import (
 	"pdm-backend/internal/config"
 	"pdm-backend/repositories"
 	"pdm-backend/services"
-	"strconv"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -129,24 +129,19 @@ func DisconnectUser(financeId, userId uint) {
 
 type SharedFinanceWS struct {
 	FinanceRepo *repositories.SharedFinanceRepository
+	wg          *sync.WaitGroup
+	doneChannel <-chan struct{}
 }
 
-func NewSharedFinanceWS(financeRepo *repositories.SharedFinanceRepository) *SharedFinanceWS {
+func NewSharedFinanceWS(financeRepo *repositories.SharedFinanceRepository, wg *sync.WaitGroup, doneWs <-chan struct{}) *SharedFinanceWS {
 	return &SharedFinanceWS{
 		FinanceRepo: financeRepo,
+		wg:          wg,
+		doneChannel: doneWs,
 	}
 }
 
 func (sfws *SharedFinanceWS) HandleConnection(c *gin.Context) {
-
-	idParam := c.Param("id")
-
-	idUint, err := strconv.ParseUint(idParam, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid finance id"})
-		return
-	}
-	financeId := uint(idUint)
 
 	userClaims, httpCode, jsonResponse := services.GetClaims(c)
 	if userClaims == nil {
@@ -154,17 +149,7 @@ func (sfws *SharedFinanceWS) HandleConnection(c *gin.Context) {
 		return
 	}
 
-	financeExists := sfws.FinanceRepo.DoesSharedFinanceExists(financeId)
-	if !financeExists {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "Shared finance doesn't exist or you don't have access to it"})
-		return
-	}
-
-	userBelongs := sfws.FinanceRepo.UserBelongsToSharedFinance(userClaims.UserID, financeId)
-	if !userBelongs {
-		c.JSON(http.StatusForbidden, gin.H{"success": false, "message": "You don't have access to this shared finance"})
-		return
-	}
+	financeId := services.FinanceId(c)
 
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -180,14 +165,33 @@ func (sfws *SharedFinanceWS) HandleConnection(c *gin.Context) {
 		done:      make(chan struct{}),
 	}
 
+	sfws.wg.Add(1)
 	addClient(cl)
-	defer removeClient(cl)
+
+	defer func() {
+		removeClient(cl)
+		sfws.wg.Done()
+	}()
+
+	go func() {
+		<-sfws.doneChannel
+		log.Println("Signaling connection to close gracefully...")
+		closeMessage := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Server shutting down")
+		err := cl.conn.WriteControl(websocket.CloseMessage, closeMessage, time.Now().Add(2*time.Second))
+		if err != nil {
+			log.Printf("Failed to send close frame: %v", err)
+		}
+		ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	}()
 
 	go cl.writePump()
 
 	for {
 		var msg any
 		if err := ws.ReadJSON(&msg); err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				log.Printf("Read error: %v", err)
+			}
 			break
 		}
 	}

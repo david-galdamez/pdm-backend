@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func UserRouter(r *gin.Engine) {
+func UserRouter(r *gin.RouterGroup) {
 
 	userRepo := repositories.NewUserRepository(repositories.GetDB())
 	financeRepo := repositories.NewFinanceRepository(repositories.GetDB())

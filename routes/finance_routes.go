@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func FinanceRouter(r *gin.Engine) {
+func FinanceRouter(r *gin.RouterGroup) {
 
 	financeRepo := repositories.NewFinanceRepository(repositories.GetDB())
 	handler := controllers.NewFinanceHandler(financeRepo)

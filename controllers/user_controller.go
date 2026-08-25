@@ -110,7 +110,6 @@ func (h *UserHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"token":   token,
-		"user":    gin.H{"finance_id": identifiers.FinanceID, "id": user.ID, "name": user.Name, "email": user.Email},
 	})
 }
 
@@ -154,7 +153,6 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "The profile was updated successfully",
-		"user":    gin.H{"finance_id": userClaims.FinanceID, "id": user.ID, "name": user.Name, "email": user.Email},
 	})
 }
 
