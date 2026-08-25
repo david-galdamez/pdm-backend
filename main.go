@@ -1,10 +1,17 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
 	"pdm-backend/internal/config"
 	"pdm-backend/repositories"
 	"pdm-backend/routes"
 	"pdm-backend/websockets"
+	"syscall"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -28,6 +35,10 @@ func main() {
 		MaxAge:        12 * time.Hour,
 	}))
 
+	r.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+
 	sharedFinanceRepo := repositories.NewSharedFinanceRepository(repositories.GetDB())
 	handler := websockets.NewSharedFinanceWS(sharedFinanceRepo)
 	go handler.HandleBroadCast()
@@ -43,5 +54,31 @@ func main() {
 	routes.SharedFinanceRouter(r)
 	websockets.WebSocketRouter(r, handler)
 
-	r.Run(":" + cfg.PORT)
+	s := &http.Server{
+		Addr:         ":" + cfg.PORT,
+		Handler:      r,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	go func() {
+		if err := s.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Listen: %s\n", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := s.Shutdown(ctx); err != nil {
+		log.Println("Server shutdown:", err)
+	}
+	log.Println("Server exiting")
 }
