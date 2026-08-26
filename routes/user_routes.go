@@ -8,19 +8,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func UserRouter(r *gin.Engine) {
+func UserRouter(r *gin.RouterGroup) {
 
 	userRepo := repositories.NewUserRepository(repositories.GetDB())
-	financeRepo := repositories.NewFinanzaRepository(repositories.GetDB())
+	financeRepo := repositories.NewFinanceRepository(repositories.GetDB())
 	handler := controllers.NewUserHandler(userRepo, financeRepo)
 
-	user := r.Group("/usuario")
-	user.POST("/login", handler.Login)
-	user.POST("/registro", handler.Register)
-
-	user.Use(middlewares.AuthMiddleware())
+	auth := r.Group("/auth")
+	auth.Use(middlewares.RateLimiter())
 	{
-		user.PATCH("/cambiar-perfil", handler.UpdateProfile)
-		user.PATCH("/cambiar-contrasena", handler.UpdatePassword)
+		auth.POST("/login", handler.Login)
+		auth.POST("/register", handler.Register)
+	}
+
+	users := r.Group("/users")
+	users.Use(middlewares.AuthMiddleware(userRepo))
+	{
+		users.PATCH("/me", handler.UpdateProfile)
+		users.PATCH("/me/password", handler.UpdatePassword)
 	}
 }

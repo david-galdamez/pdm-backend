@@ -12,7 +12,7 @@ func ParseUint(c *gin.Context) (*uint, int, gin.H) {
 
 	idUint, err := strconv.ParseUint(idParam, 10, 64)
 	if err != nil {
-		return nil, http.StatusBadRequest, gin.H{"success": false, "message": "El id no es un numero valido"}
+		return nil, http.StatusBadRequest, gin.H{"success": false, "message": "The id is not a valid number"}
 	}
 	id := uint(idUint)
 

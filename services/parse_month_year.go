@@ -8,22 +8,22 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func ParseMonthAndYear(c *gin.Context) (inicioMes, finMes time.Time, httpCode int, jsonResponse gin.H, ok bool) {
-	mesString := c.Query("mes")
-	anioString := c.Query("anio")
+func ParseMonthAndYear(c *gin.Context) (monthStart, monthEnd time.Time, httpCode int, jsonResponse gin.H, ok bool) {
+	monthParam := c.Query("month")
+	yearParam := c.Query("year")
 
-	mes, err := strconv.Atoi(mesString)
-	if err != nil || mes < 1 || mes > 12 {
-		return time.Time{}, time.Time{}, http.StatusBadRequest, gin.H{"success": false, "message": "Mes inválido"}, false
+	month, err := strconv.Atoi(monthParam)
+	if err != nil || month < 1 || month > 12 {
+		return time.Time{}, time.Time{}, http.StatusBadRequest, gin.H{"success": false, "message": "Invalid month"}, false
 	}
 
-	anio, err := strconv.Atoi(anioString)
-	if err != nil || anio < 1900 {
-		return time.Time{}, time.Time{}, http.StatusBadRequest, gin.H{"success": false, "message": "Año inválido"}, false
+	year, err := strconv.Atoi(yearParam)
+	if err != nil || year < 1900 {
+		return time.Time{}, time.Time{}, http.StatusBadRequest, gin.H{"success": false, "message": "Invalid year"}, false
 	}
 
-	inicioMes = time.Date(anio, time.Month(mes), 1, 0, 0, 0, 0, time.UTC)
-	finMes = inicioMes.AddDate(0, 1, 0)
+	monthStart = time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	monthEnd = monthStart.AddDate(0, 1, 0)
 
-	return inicioMes, finMes, 0, nil, true
+	return monthStart, monthEnd, 0, nil, true
 }
