@@ -1,5 +1,7 @@
 # 🏃‍♂️ Personal Finance Backend (Go)
 
+[![CI](https://github.com/Befo0/pdm-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/Befo0/pdm-backend/actions/workflows/ci.yml)
+
 Backend for a personal finance mobile app, built with Go, Gin and PostgreSQL.
 
 ## 📦 Requirements
@@ -10,7 +12,7 @@ Backend for a personal finance mobile app, built with Go, Gin and PostgreSQL.
 
 ## ⚙️ Environment variables
 
-Create a `.env` file in the project root:
+Copy `.env.example` to `.env` and fill it in:
 
 ```env
 PORT=8000
@@ -65,6 +67,32 @@ go run cmd/resetdb/main.go
 This refuses to run when `ENV=production`, and otherwise prints the database
 name and host it's about to wipe and requires you to type the database name
 back to confirm.
+
+## 🐳 Running with Docker
+
+An alternative to the local Go setup above — brings up Postgres and the app
+together, no local Go toolchain required.
+
+```bash
+docker compose up -d db             # start Postgres
+docker compose run --rm migrate     # AutoMigrate + seed lookup tables
+docker compose up -d app            # build the image and start the server
+```
+
+The API is then available on http://localhost:8080. `docker-compose.yml`
+picks reasonable defaults for `JWT_SECRET`/`ALLOWED_ORIGINS`/Postgres
+credentials for local dev (see the `x-app-env` block); override any of them by
+exporting the corresponding environment variable before running `docker
+compose`, e.g. `POSTGRES_PORT=15432` if port 5432 is already taken on your
+machine.
+
+To rebuild the app image after changing code:
+
+```bash
+docker compose up -d --build app
+```
+
+`docker compose down -v` stops everything and removes the Postgres volume.
 
 ## API
 

@@ -26,6 +26,10 @@ go run cmd/resetdb/main.go          # drops every table; refuses on ENV=producti
 go run main.go
 go test ./...                       # routes/authz_integration_test.go needs a
                                      # local Postgres at DATABASE_URL
+
+docker compose up -d db             # local dev: Postgres only
+docker compose run --rm migrate     # local dev: AutoMigrate + seed, against the db above
+docker compose up -d app            # local dev: builds Dockerfile, runs the server
 ```
 
 ## Refactor status
@@ -63,12 +67,23 @@ Swept in the same pass, with integration coverage in `repositories/*_test.go`:
   `monthly_goals`/`monthly_savings`/`shared_finances` back the upserts; the
   insert path falls back to an update on `IsUniqueViolation`.
 
-### Docker & CI (not started)
-- `Dockerfile` (multi-stage, Go 1.25.0 per go.mod)
-- `.dockerignore`
-- `docker-compose.yml` (app + Postgres, for local dev)
-- `.github/workflows/ci.yml` — build, vet, gofmt check, test
-- `.env.example` — README documents the vars but there's no file to copy
+### Docker & CI — done
+`Dockerfile` is multi-stage: a `golang:1.25.0-alpine` builder compiles
+`server`, `migrate`, and `resetdb` (`CGO_ENABLED=0` — pgx is pure Go, so the
+binaries are static) into a final `alpine:3.20` image running as a non-root
+user, with a `HEALTHCHECK` against `/api/health`. `.dockerignore` keeps `.git`,
+`.env`, and docs out of the build context — without it a local `.env` would
+have been copied into the image by `COPY . .`.
+
+`docker-compose.yml` is local-dev only (`db` + `app` + a `migrate` one-off
+service under `profiles: ["tools"]`, run via `docker compose run --rm
+migrate`); it is not used in CI. `.github/workflows/ci.yml` runs a `build` job
+(build/vet/gofmt) and a separate `test` job that starts Postgres via GitHub
+Actions' own `services:` block (not Compose) seeded as
+`finance_app_test`/`postgres`/`analissa` to match the hardcoded DSN in
+`routes/authz_integration_test.go`; `go test ./...` then runs directly on the
+runner against `localhost:5432`. `.env.example` documents the same vars as the
+README.
 
 ### Server hardening — done
 `main.go` runs an `http.Server` with `ReadTimeout`/`WriteTimeout`/`IdleTimeout`,
