@@ -2,63 +2,60 @@ package services
 
 import (
 	"fmt"
-	"log"
-	"os"
+	"pdm-backend/internal/config"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/joho/godotenv"
 )
 
-var secret string
+// accessTokenTTL is deliberately short-lived rather than tied to a refresh
+// token: re-login after expiry is an acceptable cost for this app, and it
+// keeps the change entirely server-side.
+const accessTokenTTL = 7 * 24 * time.Hour
 
 type JWTClaims struct {
-	UserId    uint   `json:"userId"`
+	UserID    uint   `json:"userId"`
 	UserName  string `json:"userName"`
 	UserEmail string `json:"userEmail"`
-	FinanzaId uint   `json:"financeId"`
-	AhorroId  uint   `json:"ahorroId"`
+	FinanceID uint   `json:"financeId"`
+	SavingsID uint   `json:"savingsId"`
+	// TokenVersion must match the user's current token_version or the token is
+	// treated as revoked, even if it has not expired yet.
+	TokenVersion uint `json:"tokenVersion"`
 	jwt.RegisteredClaims
 }
 
-func init() {
+func GenerateJWT(userId uint, userName string, userEmail string, financeId, savingsId, tokenVersion uint) (string, error) {
 
-	if os.Getenv("ENV") != "production" {
-		err := godotenv.Load(".env")
-		if err != nil {
-			log.Println("No se pudo cargar .env (esto es normal en producción)")
-		}
-	}
-
-	secret = os.Getenv("SECRET_WORD")
-	if secret == "" {
-		log.Fatal("No se ha encontrado la clave secreta")
-	}
-}
-
-func GenerateJWT(userId uint, userName string, userEmail string, finanzaId, ahorroId uint) (string, error) {
+	now := time.Now()
 
 	claims := JWTClaims{
-		UserId:    userId,
-		UserName:  userName,
-		UserEmail: userEmail,
-		FinanzaId: finanzaId,
-		AhorroId:  ahorroId,
+		UserID:       userId,
+		UserName:     userName,
+		UserEmail:    userEmail,
+		FinanceID:    financeId,
+		SavingsID:    savingsId,
+		TokenVersion: tokenVersion,
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(accessTokenTTL)),
+		},
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 
-	return token.SignedString([]byte(secret))
+	return token.SignedString([]byte(config.Get().JWT_SECRET))
 }
 
-func ValidateJWT(cookieToken string) (*jwt.Token, *JWTClaims, error) {
+func ValidateJWT(tokenString string) (*jwt.Token, *JWTClaims, error) {
 	claims := &JWTClaims{}
 
-	token, err := jwt.ParseWithClaims(cookieToken, claims, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("Metodo de firma invalido: %v", token.Header["alg"])
+			return nil, fmt.Errorf("invalid signing method: %v", token.Header["alg"])
 		}
-		return []byte(secret), nil
-	})
+		return []byte(config.Get().JWT_SECRET), nil
+	}, jwt.WithExpirationRequired())
 
 	if err != nil {
 		return nil, nil, err

@@ -3,82 +3,254 @@ package websockets
 import (
 	"log"
 	"net/http"
+	"pdm-backend/internal/config"
 	"pdm-backend/repositories"
-	"strconv"
+	"pdm-backend/services"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
 
-var clientsFinanza = make(map[uint]map[*websocket.Conn]bool)
-var mu sync.RWMutex
-var MensajeBroadcast = make(chan repositories.BroadCastMessage, 100)
+// sendBuffer is how many broadcasts may queue up for a single connection before
+// it is treated as too slow and dropped.
+const sendBuffer = 16
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+// client is one open connection. Every write to conn goes through send so that a
+// single goroutine (writePump) owns the connection: gorilla/websocket allows
+// only one concurrent writer, and concurrent WriteJSON calls panic.
+type client struct {
+	conn      *websocket.Conn
+	userId    uint
+	financeId uint
+	send      chan any
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
-func HandleConnection(c *gin.Context) {
+// close is safe to call more than once and from any goroutine.
+func (cl *client) close() {
+	cl.closeOnce.Do(func() {
+		close(cl.done)
+		cl.conn.Close()
+	})
+}
 
-	idParam := c.Param("id")
+// financeClients holds the live connections per finance. A user may have several
+// (phone and tablet, or a reconnect racing a dead socket), so connections are
+// keyed by client, never by user id.
+var financeClients = make(map[uint]map[*client]struct{})
+var mu sync.RWMutex
+var BroadcastMessages = make(chan repositories.BroadCastMessage, 100)
 
-	idUint, err := strconv.ParseUint(idParam, 10, 64)
-	if err != nil {
-		log.Println("Ocurrio un error convertir el id")
+// allowedOrigins is the ALLOWED_ORIGINS allowlist as a set, built on first use.
+var allowedOrigins = sync.OnceValue(func() map[string]bool {
+	set := make(map[string]bool)
+
+	for _, origin := range config.Get().ALLOWED_ORIGINS {
+		set[origin] = true
+	}
+
+	return set
+})
+
+var upgrader = websocket.Upgrader{
+	// The handshake is a plain GET that CORS never guards, so the origin has to
+	// be checked here. Native mobile clients send no Origin header and are not
+	// subject to browser same-origin rules, so an absent Origin is let through.
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+
+		if !allowedOrigins()[origin] {
+			log.Println("Rejected websocket connection from origin: ", origin)
+			return false
+		}
+
+		return true
+	},
+}
+
+func addClient(cl *client) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if financeClients[cl.financeId] == nil {
+		financeClients[cl.financeId] = make(map[*client]struct{})
+	}
+
+	financeClients[cl.financeId][cl] = struct{}{}
+}
+
+// removeClient deregisters a single connection and closes it.
+func removeClient(cl *client) {
+	mu.Lock()
+
+	if clients := financeClients[cl.financeId]; clients != nil {
+		delete(clients, cl)
+
+		if len(clients) == 0 {
+			delete(financeClients, cl.financeId)
+		}
+	}
+	mu.Unlock()
+
+	cl.close()
+}
+
+// DisconnectUser drops every connection a user holds on a finance. Call it when
+// a membership is revoked so the socket does not outlive the access it was
+// granted under.
+func DisconnectUser(financeId, userId uint) {
+	mu.Lock()
+	var dropped []*client
+
+	if clients := financeClients[financeId]; clients != nil {
+		for cl := range clients {
+			if cl.userId == userId {
+				dropped = append(dropped, cl)
+				delete(clients, cl)
+			}
+		}
+
+		if len(clients) == 0 {
+			delete(financeClients, financeId)
+		}
+	}
+	mu.Unlock()
+
+	for _, cl := range dropped {
+		cl.close()
+	}
+}
+
+type SharedFinanceWS struct {
+	FinanceRepo *repositories.SharedFinanceRepository
+	wg          *sync.WaitGroup
+	doneChannel <-chan struct{}
+}
+
+func NewSharedFinanceWS(financeRepo *repositories.SharedFinanceRepository, wg *sync.WaitGroup, doneWs <-chan struct{}) *SharedFinanceWS {
+	return &SharedFinanceWS{
+		FinanceRepo: financeRepo,
+		wg:          wg,
+		doneChannel: doneWs,
+	}
+}
+
+func (sfws *SharedFinanceWS) HandleConnection(c *gin.Context) {
+
+	userClaims, httpCode, jsonResponse := services.GetClaims(c)
+	if userClaims == nil {
+		c.JSON(httpCode, jsonResponse)
 		return
 	}
-	idFinanza := uint(idUint)
+
+	financeId := services.FinanceId(c)
 
 	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Println("Ocurrio un error al convertir en websocket")
+		log.Println("Could not upgrade the connection to a websocket")
 		return
 	}
 
-	defer ws.Close()
-
-	mu.Lock()
-	if clientsFinanza[idFinanza] == nil {
-		clientsFinanza[idFinanza] = make(map[*websocket.Conn]bool)
+	cl := &client{
+		conn:      ws,
+		userId:    userClaims.UserID,
+		financeId: financeId,
+		send:      make(chan any, sendBuffer),
+		done:      make(chan struct{}),
 	}
 
-	clientsFinanza[idFinanza][ws] = true
-	mu.Unlock()
+	sfws.wg.Add(1)
+	addClient(cl)
+
+	defer func() {
+		removeClient(cl)
+		sfws.wg.Done()
+	}()
+
+	go func() {
+		<-sfws.doneChannel
+		log.Println("Signaling connection to close gracefully...")
+		closeMessage := websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Server shutting down")
+		err := cl.conn.WriteControl(websocket.CloseMessage, closeMessage, time.Now().Add(2*time.Second))
+		if err != nil {
+			log.Printf("Failed to send close frame: %v", err)
+		}
+		ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	}()
+
+	go cl.writePump()
 
 	for {
-		var msg interface{}
-		err := ws.ReadJSON(&msg)
-		if err != nil {
-			mu.Lock()
-			delete(clientsFinanza[idFinanza], ws)
-
-			if len(clientsFinanza[idFinanza]) == 0 {
-				delete(clientsFinanza, idFinanza)
+		var msg any
+		if err := ws.ReadJSON(&msg); err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				log.Printf("Read error: %v", err)
 			}
-			mu.Unlock()
 			break
 		}
 	}
 }
 
-func HandleBroadCast() {
+// writePump is the only goroutine that writes to the connection.
+func (cl *client) writePump() {
 	for {
-		msg := <-MensajeBroadcast
+		select {
+		case msg := <-cl.send:
+			if err := cl.conn.WriteJSON(msg); err != nil {
+				log.Println("Error sending message: ", err)
+				removeClient(cl)
+				return
+			}
+		case <-cl.done:
+			return
+		}
+	}
+}
 
-		mu.RLock()
-		clients := clientsFinanza[msg.FinanzaId]
-		mu.RUnlock()
-		for client := range clients {
-			go func(c *websocket.Conn) {
-				if err := client.WriteJSON(msg.EventInfo); err != nil {
-					log.Println("Error enviando mensaje")
-					client.Close()
-					mu.Lock()
-					delete(clients, client)
-					mu.Unlock()
-				}
-			}(client)
+func (sfws *SharedFinanceWS) HandleBroadCast() {
+	for msg := range BroadcastMessages {
+		sfws.dispatch(msg)
+	}
+}
+
+// dispatch fans one message out to the finance's connections, skipping any whose
+// membership has been revoked since they connected. It runs on the broadcast
+// goroutine so messages keep their order.
+func (sfws *SharedFinanceWS) dispatch(msg repositories.BroadCastMessage) {
+	mu.RLock()
+	clients := make([]*client, 0, len(financeClients[msg.FinanceID]))
+
+	for cl := range financeClients[msg.FinanceID] {
+		clients = append(clients, cl)
+	}
+	mu.RUnlock()
+
+	// One membership lookup per user, not per connection.
+	membership := make(map[uint]bool)
+
+	for _, cl := range clients {
+		belongs, checked := membership[cl.userId]
+		if !checked {
+			belongs = sfws.FinanceRepo.UserBelongsToSharedFinance(cl.userId, msg.FinanceID)
+			membership[cl.userId] = belongs
+		}
+
+		if !belongs {
+			removeClient(cl)
+			continue
+		}
+
+		select {
+		case cl.send <- msg.EventInfo:
+		default:
+			log.Println("Dropping websocket client that is too slow, user: ", cl.userId)
+			removeClient(cl)
 		}
 	}
 }

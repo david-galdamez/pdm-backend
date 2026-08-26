@@ -8,16 +8,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TransaccionRouter(r *gin.Engine) {
-	transaccionRepo := repositories.NewTransaccionRepository(repositories.GetDB())
-	handler := controllers.NewTransaccionHandler(transaccionRepo)
+func TransactionRouter(r *gin.RouterGroup) {
+	transactionRepo := repositories.NewTransactionRepository(repositories.GetDB())
+	handler := controllers.NewTransactionHandler(transactionRepo)
 
-	transaccion := r.Group("/transacciones")
-	transaccion.Use(middlewares.AuthMiddleware())
+	authRepo := repositories.NewUserRepository(repositories.GetDB())
+	accessRepo := repositories.NewFinanceAccessRepository(repositories.GetDB())
+
+	transactions := r.Group("/transactions")
+	transactions.Use(middlewares.AuthMiddleware(authRepo), middlewares.FinanceAccess(accessRepo))
 	{
-		transaccion.GET("/lista-transaccion", handler.GetTransactions)
-		transaccion.GET("/opciones-transaccion", handler.GetTransactionOptions)
-		transaccion.GET("/transaccion/:id", handler.GetTransactionById)
-		transaccion.POST("/crear", handler.CreateTransaction)
+		transactions.GET("", handler.GetTransactions)
+		transactions.GET("/options", handler.GetTransactionOptions)
+		transactions.GET("/:id", handler.GetTransactionById)
+		transactions.POST("", handler.CreateTransaction)
 	}
 }

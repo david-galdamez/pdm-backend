@@ -25,32 +25,32 @@ func (r *UserRepository) CreateUserAndFinance(user *models.User) error {
 			return err
 		}
 
-		finanza := models.Finanzas{
-			UserID:         user.ID,
-			TipoFinanzasID: 1,
+		finance := models.Finance{
+			UserID:        user.ID,
+			FinanceTypeID: models.FinanceTypePersonal,
 		}
-		if err := tx.Create(&finanza).Error; err != nil {
+		if err := tx.Create(&finance).Error; err != nil {
 			return err
 		}
 
-		categoria := models.CategoriaEgreso{
-			FinanzasID:      finanza.ID,
-			NombreCategoria: "Ahorro",
-			UserID:          user.ID,
+		category := models.ExpenseCategory{
+			FinanceID: finance.ID,
+			Name:      models.SavingsCategoryName,
+			UserID:    user.ID,
 		}
-		if err := tx.Create(&categoria).Error; err != nil {
+		if err := tx.Create(&category).Error; err != nil {
 			return err
 		}
 
-		subCategoria := models.SubCategoriaEgreso{
-			FinanzasID:         finanza.ID,
-			NombreSubCategoria: "Ahorro",
-			TipoPresupuestoID:  3,
-			CategoriaEgresoID:  categoria.ID,
-			PresupuestoMensual: 0.00,
-			UserID:             user.ID,
+		subcategory := models.ExpenseSubcategory{
+			FinanceID:         finance.ID,
+			Name:              models.SavingsCategoryName,
+			BudgetTypeID:      models.BudgetTypeProvisional,
+			ExpenseCategoryID: category.ID,
+			MonthlyBudget:     0.00,
+			UserID:            user.ID,
 		}
-		if err := tx.Create(&subCategoria).Error; err != nil {
+		if err := tx.Create(&subcategory).Error; err != nil {
 			return err
 		}
 
@@ -63,7 +63,7 @@ func (r *UserRepository) CreateUserAndFinance(user *models.User) error {
 func (r *UserRepository) GetUserByEmail(email string) (*models.User, error) {
 	var user models.User
 
-	if err := r.DB.Where("correo = ?", email).First(&user).Error; err != nil {
+	if err := r.DB.Where("email = ?", email).First(&user).Error; err != nil {
 		return nil, err
 	}
 
@@ -80,27 +80,48 @@ func (r *UserRepository) GetUserById(id uint) (*models.User, error) {
 	return &user, nil
 }
 
-type Identificadores struct {
-	FinanzaId uint
-	AhorroId  uint
+type Identifiers struct {
+	FinanceID uint
+	SavingsID uint
 }
 
-func (r *UserRepository) GetFinanceAndSavingSubCategoryByUserId(userId uint) (*Identificadores, error) {
-	var identificadores Identificadores
+// GetFinanceAndSavingSubcategoryByUserId resolves the ids that go into the
+// user's token. Registration creates both, so a miss means the account is
+// broken; reporting it beats minting a token carrying finance id 0.
+func (r *UserRepository) GetFinanceAndSavingSubcategoryByUserId(userId uint) (*Identifiers, error) {
+	var identifiers Identifiers
 
-	err := r.DB.Model(&models.Finanzas{}).
-		Select("finanzas.id AS finanza_id, sub_categoria_egresos.id AS ahorro_id").
-		Joins("JOIN sub_categoria_egresos ON finanzas.id = sub_categoria_egresos.finanzas_id").
-		Where("finanzas.user_id = ? AND finanzas.tipo_finanzas_id = ? AND sub_categoria_egresos.nombre_sub_categoria = ?", userId, 1, "Ahorro").
-		Scan(&identificadores).Error
+	tx := r.DB.Model(&models.Finance{}).
+		Select("finances.id AS finance_id, expense_subcategories.id AS savings_id").
+		Joins("JOIN expense_subcategories ON finances.id = expense_subcategories.finance_id AND expense_subcategories.deleted_at IS NULL").
+		Where("finances.user_id = ? AND finances.finance_type_id = ? AND expense_subcategories.name = ?",
+			userId, models.FinanceTypePersonal, models.SavingsCategoryName).
+		Scan(&identifiers)
 
-	if err != nil {
+	if err := tx.Error; err != nil {
 		return nil, err
 	}
 
-	return &identificadores, nil
+	if tx.RowsAffected == 0 {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	return &identifiers, nil
 }
 
 func (r *UserRepository) UpdateUser(user *models.User) error {
 	return r.DB.Save(&user).Error
+}
+
+// GetTokenVersion is what AuthMiddleware checks a token's embedded version
+// against on every request, so a password change invalidates outstanding
+// tokens without a revocation list.
+func (r *UserRepository) GetTokenVersion(userId uint) (uint, error) {
+	var user models.User
+
+	if err := r.DB.Select("token_version").First(&user, userId).Error; err != nil {
+		return 0, err
+	}
+
+	return user.TokenVersion, nil
 }

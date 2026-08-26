@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main, refactor/backend-overhaul]
+  pull_request:
+    branches: [main, refactor/backend-overhaul]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.0"
+          cache: true
+
+      - name: go build
+        run: go build ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt
+        run: |
+          fmt_out="$(gofmt -l .)"
+          if [ -n "$fmt_out" ]; then
+            echo "The following files are not gofmt'ed:"
+            echo "$fmt_out"
+            exit 1
+          fi
+
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: analissa
+          POSTGRES_DB: finance_app_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.0"
+          cache: true
+
+      - name: go test
+        env:
+          # Matches routes/authz_integration_test.go's hardcoded DATABASE_URL
+          # and repositories/main_test.go's default TEST_POSTGRES_DSN.
+          ENV: test
+          JWT_SECRET: ci-only-secret-at-least-32-characters-long
+          DATABASE_URL: postgres://postgres:analissa@localhost:5432/finance_app_test?sslmode=disable
+        run: go test ./...

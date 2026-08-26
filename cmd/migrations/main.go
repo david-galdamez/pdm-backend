@@ -13,87 +13,87 @@ func main() {
 	db := repositories.GetDB()
 
 	err := db.AutoMigrate(
-		&models.TipoFinanzas{},
-		&models.TipoPresupuesto{},
-		&models.TipoRegistro{},
-		&models.TipoIngresos{},
-		&models.RolFinanzaConjunto{},
+		&models.FinanceType{},
+		&models.BudgetType{},
+		&models.EntryType{},
+		&models.IncomeSource{},
+		&models.SharedFinanceRole{},
 		&models.User{},
-		&models.Finanzas{},
-		&models.FinanzasConjunto{},
-		&models.CategoriaEgreso{},
-		&models.SubCategoriaEgreso{},
-		&models.Transacciones{},
-		&models.MetaMensual{},
-		&models.AhorroMensual{},
-		&models.Invitaciones{},
+		&models.Finance{},
+		&models.SharedFinance{},
+		&models.ExpenseCategory{},
+		&models.ExpenseSubcategory{},
+		&models.Transaction{},
+		&models.MonthlyGoal{},
+		&models.MonthlySaving{},
+		&models.Invitation{},
 	)
 	if err != nil {
-		log.Fatal("Ocurrio un error al realizar las migraciones ", err)
+		log.Fatal("An error occurred while running the migrations: ", err)
 	}
 
 	SeedData()
 
-	log.Print("Migraciones realizadas con exito")
+	log.Print("Migrations completed successfully")
 }
 
 func SeedData() {
 
 	db := repositories.GetDB()
 
-	tipoFinanzas := []models.TipoFinanzas{
-		{NombreTipo: "personal"},
-		{NombreTipo: "conjunta"},
+	financeTypes := []models.FinanceType{
+		{Name: "personal"},
+		{Name: "shared"},
 	}
-	for _, tipo := range tipoFinanzas {
-		var existing models.TipoFinanzas
+	for _, financeType := range financeTypes {
+		var existing models.FinanceType
 
-		if err := db.Where("nombre_tipo = ?", tipo.NombreTipo).First(&existing).Error; err != nil {
+		if err := db.Where("name = ?", financeType.Name).First(&existing).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				db.Create(&tipo)
+				db.Create(&financeType)
 			}
 		}
 	}
 
-	rolFinanza := []models.RolFinanzaConjunto{
-		{NombreRol: "admin"},
-		{NombreRol: "colaborador"},
+	roles := []models.SharedFinanceRole{
+		{Name: "admin"},
+		{Name: "collaborator"},
 	}
-	for _, rol := range rolFinanza {
-		var existing models.RolFinanzaConjunto
+	for _, role := range roles {
+		var existing models.SharedFinanceRole
 
-		if err := db.Where("nombre_rol = ?", rol.NombreRol).First(&existing).Error; err != nil {
+		if err := db.Where("name = ?", role.Name).First(&existing).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				db.Create(&rol)
+				db.Create(&role)
 			}
 		}
 	}
 
-	tipoPresupuesto := []models.TipoPresupuesto{
-		{NombreTipoPresupuesto: "Gastos variables"},
-		{NombreTipoPresupuesto: "Gastos fijos"},
-		{NombreTipoPresupuesto: "Gastos Provisionales"},
+	budgetTypes := []models.BudgetType{
+		{Name: "Variable expenses"},
+		{Name: "Fixed expenses"},
+		{Name: "Provisional expenses"},
 	}
-	for _, tipoPresupuesto := range tipoPresupuesto {
-		var existing models.TipoPresupuesto
+	for _, budgetType := range budgetTypes {
+		var existing models.BudgetType
 
-		if err := db.Where("nombre_tipo_presupuesto = ?", tipoPresupuesto.NombreTipoPresupuesto).First(&existing).Error; err != nil {
+		if err := db.Where("name = ?", budgetType.Name).First(&existing).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				db.Create(&tipoPresupuesto)
+				db.Create(&budgetType)
 			}
 		}
 	}
 
-	tipoRegistroTransaccion := []models.TipoRegistro{
-		{NombreTipoRegistro: "Ingreso"},
-		{NombreTipoRegistro: "Egreso"},
+	entryTypes := []models.EntryType{
+		{Name: "Income"},
+		{Name: "Expense"},
 	}
-	for _, tipoRegistro := range tipoRegistroTransaccion {
-		var existing models.TipoRegistro
+	for _, entryType := range entryTypes {
+		var existing models.EntryType
 
-		if err := db.Where("nombre_tipo_registro = ?", tipoRegistro.NombreTipoRegistro).First(&existing).Error; err != nil {
+		if err := db.Where("name = ?", entryType.Name).First(&existing).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				db.Create(&tipoRegistro)
+				db.Create(&entryType)
 			}
 		}
 	}
