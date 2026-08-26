@@ -1,6 +1,7 @@
 # 🏃‍♂️ Personal Finance Backend (Go)
 
 [![CI](https://github.com/Befo0/pdm-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/Befo0/pdm-backend/actions/workflows/ci.yml)
+CI runs on every push/PR: `go vet` + `gofmt` checks, a full build (`go build ./...`), and the test suite against a Postgres service container.
 
 Backend for a personal finance mobile app, built with Go, Gin and PostgreSQL.
 
@@ -142,6 +143,34 @@ against brute-force attempts.
 Endpoints that operate on a finance accept an optional `?finance_id=` query
 parameter; without it they fall back to the caller's personal finance.
 Month-scoped endpoints take `?month=` and `?year=`.
+
+## Architecture & decisions
+
+Gin + GORM were chosen early on for development speed — this started as a
+university project on a tight deadline, so a batteries-included router and
+ORM mattered more than raw performance. Requests flow through a fixed
+pipeline: middleware → controller → repository → model.
+
+```
+Client → middlewares (auth, finance access, rate limit)
+       → controllers (bind + validate request)
+       → repositories (GORM queries, one DB transaction per write)
+       → models (Postgres)
+```
+
+Once the app moved past the university project stage, the backend went
+through a security/architecture hardening pass:
+
+- **Rate limiting** on `/auth/login` and `/auth/register` — these were
+  previously unprotected, leaving them open to brute-force credential
+  guessing.
+- **Graceful shutdown** — the server used to drop in-flight requests and
+  open websocket connections on deploy/restart; it now stops accepting new
+  connections and closes existing ones cleanly before exiting.
+- **Automated tests** (`controllers`, `repositories`, `routes`, `middlewares`)
+  — the original codebase had none, so correctness relied on manual
+  QA. Coverage was added for authorization, repository aggregation math, and
+  request validation, run automatically in CI on every push.
 
 ## Operational notes
 
