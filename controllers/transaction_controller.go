@@ -3,10 +3,10 @@ package controllers
 import (
 	"errors"
 	"net/http"
+	"pdm-backend/events"
 	"pdm-backend/models"
 	"pdm-backend/repositories"
 	"pdm-backend/services"
-	"pdm-backend/websockets"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -15,10 +15,11 @@ import (
 
 type TransactionHandler struct {
 	TransactionRepo *repositories.TransactionRepository
+	publisher       events.Publisher
 }
 
-func NewTransactionHandler(transactionRepo *repositories.TransactionRepository) *TransactionHandler {
-	return &TransactionHandler{TransactionRepo: transactionRepo}
+func NewTransactionHandler(transactionRepo *repositories.TransactionRepository, publisher events.Publisher) *TransactionHandler {
+	return &TransactionHandler{TransactionRepo: transactionRepo, publisher: publisher}
 }
 
 func (h *TransactionHandler) GetTransactions(c *gin.Context) {
@@ -217,9 +218,7 @@ func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
 	}
 
 	if isSharedFinance {
-		webSocketEvent := h.TransactionRepo.BuildWebSocketEvent(financeId, transaction.ExpenseSubcategoryID, savingsId)
-
-		websockets.BroadcastMessages <- *webSocketEvent
+		h.publisher.Publish(financeId, isSaving)
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"success": true, "message": "The transaction was created successfully"})

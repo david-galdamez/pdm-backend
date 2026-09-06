@@ -308,29 +308,3 @@ func (r *TransactionRepository) GetSavingSubcategory(financeId uint) (uint, erro
 
 	return subcategoryId, nil
 }
-
-type PayloadEvent struct {
-	Event string `json:"event"`
-}
-
-type BroadCastMessage struct {
-	FinanceID uint           `json:"finance_id"`
-	EventInfo []PayloadEvent `json:"event_info"`
-}
-
-func (r *TransactionRepository) BuildWebSocketEvent(financeId uint, transactionSubcategoryId *uint, savingSubcategoryId uint) *BroadCastMessage {
-	eventInfo := []PayloadEvent{
-		{Event: "finance_summary"},
-		{Event: "finance_data"},
-		{Event: "transaction_list"},
-	}
-
-	if transactionSubcategoryId != nil && *transactionSubcategoryId == savingSubcategoryId {
-		eventInfo = append(eventInfo, PayloadEvent{Event: "finance_savings"})
-	}
-
-	return &BroadCastMessage{
-		FinanceID: financeId,
-		EventInfo: eventInfo,
-	}
-}

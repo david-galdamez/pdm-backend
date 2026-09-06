@@ -3,6 +3,7 @@ package websockets
 import (
 	"log"
 	"net/http"
+	"pdm-backend/events"
 	"pdm-backend/internal/config"
 	"pdm-backend/repositories"
 	"pdm-backend/services"
@@ -42,7 +43,7 @@ func (cl *client) close() {
 // keyed by client, never by user id.
 var financeClients = make(map[uint]map[*client]struct{})
 var mu sync.RWMutex
-var BroadcastMessages = make(chan repositories.BroadCastMessage, 100)
+var BroadcastMessages = make(chan events.BroadCastMessage, 100)
 
 // allowedOrigins is the ALLOWED_ORIGINS allowlist as a set, built on first use.
 var allowedOrigins = sync.OnceValue(func() map[string]bool {
@@ -222,7 +223,7 @@ func (sfws *SharedFinanceWS) HandleBroadCast() {
 // dispatch fans one message out to the finance's connections, skipping any whose
 // membership has been revoked since they connected. It runs on the broadcast
 // goroutine so messages keep their order.
-func (sfws *SharedFinanceWS) dispatch(msg repositories.BroadCastMessage) {
+func (sfws *SharedFinanceWS) dispatch(msg events.BroadCastMessage) {
 	mu.RLock()
 	clients := make([]*client, 0, len(financeClients[msg.FinanceID]))
 
