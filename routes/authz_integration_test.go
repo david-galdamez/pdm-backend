@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"pdm-backend/events"
 	"pdm-backend/models"
 	"pdm-backend/repositories"
 	"pdm-backend/services"
@@ -101,11 +102,12 @@ func newTestEngine() *gin.Engine {
 	r := gin.New()
 	// An empty-prefix group, not r.Group("/api"): the request paths below were
 	// written before main.go mounted routers under /api and assume no prefix.
+	memoryBroker := events.NewMemoryBroker()
 	root := r.Group("")
 	UserRouter(root)
 	FinanceRouter(root)
 	CategoryRouter(root)
-	TransactionRouter(root)
+	TransactionRouter(root, memoryBroker)
 	SubcategoryRouter(root)
 	IncomeSourceRouter(root)
 	SavingRouter(root)

@@ -1,7 +1,13 @@
 package events
 
+import "context"
+
 type Publisher interface {
 	Publish(financeId uint, isSaving bool) error
+}
+
+type Subscriber interface {
+	Subscribe(ctx context.Context, handler func(BroadCastMessage))
 }
 
 type PayloadEvent struct {

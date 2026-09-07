@@ -2,15 +2,16 @@ package routes
 
 import (
 	"pdm-backend/controllers"
+	"pdm-backend/events"
 	"pdm-backend/middlewares"
 	"pdm-backend/repositories"
 
 	"github.com/gin-gonic/gin"
 )
 
-func TransactionRouter(r *gin.RouterGroup) {
+func TransactionRouter(r *gin.RouterGroup, memoryBroker events.Publisher) {
 	transactionRepo := repositories.NewTransactionRepository(repositories.GetDB())
-	handler := controllers.NewTransactionHandler(transactionRepo)
+	handler := controllers.NewTransactionHandler(transactionRepo, memoryBroker)
 
 	authRepo := repositories.NewUserRepository(repositories.GetDB())
 	accessRepo := repositories.NewFinanceAccessRepository(repositories.GetDB())

@@ -1,6 +1,7 @@
 package websockets
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"pdm-backend/events"
@@ -43,7 +44,6 @@ func (cl *client) close() {
 // keyed by client, never by user id.
 var financeClients = make(map[uint]map[*client]struct{})
 var mu sync.RWMutex
-var BroadcastMessages = make(chan events.BroadCastMessage, 100)
 
 // allowedOrigins is the ALLOWED_ORIGINS allowlist as a set, built on first use.
 var allowedOrigins = sync.OnceValue(func() map[string]bool {
@@ -214,10 +214,8 @@ func (cl *client) writePump() {
 	}
 }
 
-func (sfws *SharedFinanceWS) HandleBroadCast() {
-	for msg := range BroadcastMessages {
-		sfws.dispatch(msg)
-	}
+func (sfws *SharedFinanceWS) HandleBroadCast(ctx context.Context, sub events.Subscriber) {
+	sub.Subscribe(ctx, sfws.dispatch)
 }
 
 // dispatch fans one message out to the finance's connections, skipping any whose
