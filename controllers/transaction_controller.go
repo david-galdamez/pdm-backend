@@ -16,10 +16,11 @@ import (
 type TransactionHandler struct {
 	TransactionRepo *repositories.TransactionRepository
 	publisher       events.Publisher
+	emailPublisher  events.EmailPublisher
 }
 
-func NewTransactionHandler(transactionRepo *repositories.TransactionRepository, publisher events.Publisher) *TransactionHandler {
-	return &TransactionHandler{TransactionRepo: transactionRepo, publisher: publisher}
+func NewTransactionHandler(transactionRepo *repositories.TransactionRepository, publisher events.Publisher, emailPublisher events.EmailPublisher) *TransactionHandler {
+	return &TransactionHandler{TransactionRepo: transactionRepo, publisher: publisher, emailPublisher: emailPublisher}
 }
 
 func (h *TransactionHandler) GetTransactions(c *gin.Context) {
@@ -219,6 +220,7 @@ func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
 
 	if isSharedFinance {
 		h.publisher.Publish(financeId, isSaving)
+		h.emailPublisher.PublishTransactionEmail(c.Request.Context(), events.BuildTransactionEmailEvent(financeId, userClaims.UserID, transaction.EntryTypeID, transaction.Amount, *transaction.Description))
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"success": true, "message": "The transaction was created successfully"})
