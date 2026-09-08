@@ -2,12 +2,13 @@ package events
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-var (
+const (
 	EventsExchange               = "pdm.events"
 	DeadLetterExchange           = "pdm.dlx"
 	EmailTransactionQueue        = "email.transaction"
@@ -51,7 +52,9 @@ func TryPublishTransactionEmail(ctx context.Context, publisher EmailPublisher, e
 		return
 	}
 
-	publisher.PublishTransactionEmail(ctx, emailEvent)
+	if err := publisher.PublishTransactionEmail(ctx, emailEvent); err != nil {
+		log.Printf("email event %s dropped: %v", emailEvent.ID, err)
+	}
 }
 
 type NoopEmailPublisher struct {

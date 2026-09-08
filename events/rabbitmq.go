@@ -21,6 +21,7 @@ func NewRabbitPublisher(rabbitUrl string) (*RabbitPublisher, error) {
 
 	channel, err := conn.Channel()
 	if err != nil {
+		conn.Close()
 		return nil, err
 	}
 
