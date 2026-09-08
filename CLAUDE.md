@@ -10,9 +10,12 @@ released, so breaking changes to the API/schema are acceptable.
 `routes/` wire `middlewares/` → `controllers/` → `repositories/` → `models/`.
 Every `*Router` func takes a `*gin.RouterGroup`, not `*gin.Engine` — `main.go`
 mounts them all under `api := r.Group("/api")`. `services/` is a grab-bag (JWT,
-claims, query parsing). `websockets/` runs a single broadcast goroutine reading
-from `websockets.BroadcastMessages`. `internal/config` is the single source of
-env vars — never read `os.Getenv` elsewhere.
+claims, query parsing). `websockets/` runs a single broadcast goroutine that
+subscribes to an `events.Subscriber` (`HandleBroadCast(ctx, sub)`); producers
+call `events.Publisher.Publish`. Both interfaces live in `events/`, and
+`events.MemoryBroker` is the in-process implementation of both (a buffered Go
+channel), wired in `main.go`. `internal/config` is the single source of env
+vars — never read `os.Getenv` elsewhere.
 
 ## Commands
 
@@ -120,17 +123,23 @@ Postgres answers, so `go test ./...` works without one — unlike the `routes`
 suite, which hard-fails. Override the server with `TEST_POSTGRES_DSN` (a format
 string with one `%s` for the database name).
 
+`events/memory_broker_test.go` covers `MemoryBroker` with no DB: delivery and
+event-set shape (saving adds `finance_savings`), FIFO order, `Subscribe`
+returning on `ctx` cancel, and `Publish` never blocking once the buffer is
+full.
+
 Still untested: websocket dispatch itself, the graceful-shutdown close
 handshake, the rate limiter (`middlewares/rate_limiter.go` has no test file),
 and the transaction-creation branches end to end through the router.
 
-## Messaging & scaling plan — decided, not yet built
+## Messaging & scaling plan — decided, publisher interface extracted
 
 The app currently runs as a single instance and broadcasts websocket events
-over a Go channel (`websockets.BroadcastMessages`, written from
-`controllers/transaction_controller.go`). That is the correct design at one
+over a buffered Go channel owned by `events.MemoryBroker`, behind the
+`events.Publisher` interface (`controllers/transaction_controller.go` holds an
+`events.Publisher`, not the channel). That is the correct design at one
 instance and is **not** a stopgap: no network hop, no serialization, ordering
-for free, no extra failure mode.
+for free, no extra failure mode. Only the transport is now swappable.
 
 ### The two use cases have different justifications
 Keeping them separate is what lets one be built now and the other deferred
@@ -156,21 +165,44 @@ without it being a compromise:
   do it (fanout exchange + one `exclusive`/`auto-delete` queue per instance),
   but see the traps below.
 
-### Prerequisite: extract the publisher interface
-Do this **first**, before any infrastructure. Today the controller writes
-straight to a package-level channel, so swapping the transport means touching
-every call site. Put a `Publish(financeID, event)` interface between them and
-wire the implementation in `main.go` like the repos. The in-memory channel
-stays as the default implementation for tests and local dev; Redis later
-becomes a new file plus one line in `main.go`. Costs an afternoon, no infra,
-pays off whichever direction the project goes.
+### Prerequisite: extract the publisher interface — done
+`events/` now defines two interfaces: `Publisher` (`Publish(financeId, isSaving)
+error`, held by `TransactionHandler`) and `Subscriber` (`Subscribe(ctx,
+handler func(BroadCastMessage))`, consumed by `SharedFinanceWS.HandleBroadCast`).
+`events.MemoryBroker` implements both over one `chan BroadCastMessage` (buffer
+100): `Publish` builds the event with `BuildWebSocketEvent` and does a
+non-blocking send (drops + logs when the buffer is full, so an ephemeral ping
+never stalls the HTTP request); `Subscribe` ranges the channel until `ctx` is
+cancelled. `main.go` constructs the broker, passes it to `HandleBroadCast` with
+a cancellable `subCtx`, and threads it into `routes.TransactionRouter(api,
+broker)`. Redis later is a new `events/redis_broker.go` implementing the same
+two interfaces plus one line in `main.go`; nothing in `websockets/` or
+`controllers/` changes. Traps:
+- The producer side depends on `events.Publisher`, the ws goroutine on
+  `events.Subscriber` — segregated so each caller sees only what it needs —
+  but **one concrete struct implements both**, which is what makes "publisher
+  and subscriber are the same object, receiving its own messages back" (see
+  the Redis trap below) fall out for free.
+- `TransactionRouter` taking an `events.Publisher` param is the one break from
+  "every `*Router` takes only a `*gin.RouterGroup`". Test engines
+  (`routes/authz_integration_test.go`) build their own `events.NewMemoryBroker()`
+  and pass it in.
+- `HandleBroadCast` is now `Subscribe(ctx, sfws.dispatch)` — `dispatch` already
+  had the exact `func(events.BroadCastMessage)` signature the handler wants.
+  `subCtx` is only torn down by `defer cancelSub()` on `main` return, i.e. after
+  the graceful-shutdown `select`, not sequenced into it. Harmless for the
+  in-memory broker (the channel has nothing to flush); a Redis broker that
+  needs to drain in-flight work would want `cancelSub()` moved up next to
+  `close(doneWS)`.
 
 ### What breaks at more than one instance
 The complete list today:
-1. `financeClients` / `BroadcastMessages`
-   (`websockets/websocket_handler.go:45`) — process-local connection registry,
-   so an event produced on instance A never reaches a client connected to B.
-   → Redis Pub/Sub.
+1. `financeClients` (`websockets/websocket_handler.go`) plus
+   `events.MemoryBroker`'s in-process channel — process-local connection
+   registry and transport, so an event produced on instance A never reaches a
+   client connected to B. The `events.Publisher`/`events.Subscriber` seam is
+   already in place; this becomes swapping `MemoryBroker` for a Redis
+   implementation of the same two interfaces. → Redis Pub/Sub.
 2. `middlewares/rate_limiter.go` — per-process counters, so N instances give
    N× the effective limit. → Redis counters, plus Gin trusted-proxy config so
    `X-Forwarded-For` yields the real client IP behind a load balancer.
@@ -235,7 +267,8 @@ cross-process broker is required regardless of instance count.
   (`websocket_handler.go`'s `default:` case) is still needed.
 
 ### Build order
-1. Extract the publisher interface. No infra.
+1. ~~Extract the publisher interface. No infra.~~ Done — `events.Publisher` /
+   `events.Subscriber` / `events.MemoryBroker`.
 2. RabbitMQ + email worker as its own binary.
 3. Stop there while single-instance.
 4. Redis Pub/Sub + Redis rate limiter, when a second instance is actually

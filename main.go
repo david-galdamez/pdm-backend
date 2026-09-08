@@ -63,6 +63,10 @@ func main() {
 	sharedFinanceRepo := repositories.NewSharedFinanceRepository(repositories.GetDB())
 	handler := websockets.NewSharedFinanceWS(sharedFinanceRepo, &wg, doneWS)
 	broker := events.NewMemoryBroker()
+	emailPublisher, err := events.NewRabbitPublisher("")
+	if err != nil {
+		log.Fatalf("Failed to create RabbitMQ publisher: %v", err)
+	}
 	subCtx, cancelSub := context.WithCancel(context.Background())
 	defer cancelSub()
 	go handler.HandleBroadCast(subCtx, broker)
@@ -70,7 +74,7 @@ func main() {
 	routes.UserRouter(api)
 	routes.FinanceRouter(api)
 	routes.CategoryRouter(api)
-	routes.TransactionRouter(api, broker)
+	routes.TransactionRouter(api, broker, emailPublisher)
 	routes.SubcategoryRouter(api)
 	routes.IncomeSourceRouter(api)
 	routes.SavingRouter(api)

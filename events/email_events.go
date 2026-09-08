@@ -47,7 +47,11 @@ func BuildTransactionEmailEvent(financeId, actorUserId, entryTypeId uint, amount
 }
 
 func TryPublishTransactionEmail(ctx context.Context, publisher EmailPublisher, emailEvent TransactionEmailEvent) {
+	if publisher == nil {
+		return
+	}
 
+	publisher.PublishTransactionEmail(ctx, emailEvent)
 }
 
 type NoopEmailPublisher struct {

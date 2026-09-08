@@ -9,9 +9,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TransactionRouter(r *gin.RouterGroup, memoryBroker events.Publisher) {
+func TransactionRouter(r *gin.RouterGroup, memoryBroker events.Publisher, emailPublisher events.EmailPublisher) {
 	transactionRepo := repositories.NewTransactionRepository(repositories.GetDB())
-	handler := controllers.NewTransactionHandler(transactionRepo, memoryBroker)
+	handler := controllers.NewTransactionHandler(transactionRepo, memoryBroker, emailPublisher)
 
 	authRepo := repositories.NewUserRepository(repositories.GetDB())
 	accessRepo := repositories.NewFinanceAccessRepository(repositories.GetDB())

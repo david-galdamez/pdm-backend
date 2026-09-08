@@ -101,7 +101,8 @@ func (s *fakeSMTP) handle(conn net.Conn) {
 				continue
 			}
 
-			body.WriteString(line + "\n")
+			body.WriteString(line)
+			body.WriteString("\r\n")
 			continue
 		}
 

@@ -244,3 +244,7 @@ func (r *SharedFinanceRepository) LeaveSharedFinance(userId, financeId uint) err
 
 	return r.DB.Save(&sharedFinance).Error
 }
+
+func (r *SharedFinanceRepository) GetTransactionEmailTargets(financeId, actorUserId uint) (TransactionEmailTargets, error) {
+	return TransactionEmailTargets{}, nil
+}
