@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"pdm-backend/events"
@@ -220,7 +221,16 @@ func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
 
 	if isSharedFinance {
 		h.publisher.Publish(financeId, isSaving)
-		h.emailPublisher.PublishTransactionEmail(c.Request.Context(), events.BuildTransactionEmailEvent(financeId, userClaims.UserID, transaction.EntryTypeID, transaction.Amount, *transaction.Description))
+		h.emailPublisher.PublishTransactionEmail(
+			context.WithoutCancel(c.Request.Context()),
+			events.BuildTransactionEmailEvent(
+				financeId,
+				userClaims.UserID,
+				transaction.EntryTypeID,
+				transaction.Amount,
+				*transaction.Description,
+			),
+		)
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"success": true, "message": "The transaction was created successfully"})

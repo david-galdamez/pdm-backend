@@ -67,6 +67,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create RabbitMQ publisher: %v", err)
 	}
+
 	subCtx, cancelSub := context.WithCancel(context.Background())
 	defer cancelSub()
 	go handler.HandleBroadCast(subCtx, broker)

@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"time"
 
@@ -33,6 +34,10 @@ type TransactionEmailEvent struct {
 	Description string    `json:"description"`
 }
 
+func (e TransactionEmailEvent) ToJSON() ([]byte, error) {
+	return json.Marshal(e)
+}
+
 func BuildTransactionEmailEvent(financeId, actorUserId, entryTypeId uint, amount float64, description string) TransactionEmailEvent {
 	return TransactionEmailEvent{
 		ID:          uuid.NewString(),
@@ -57,9 +62,9 @@ func TryPublishTransactionEmail(ctx context.Context, publisher EmailPublisher, e
 	}
 }
 
-type NoopEmailPublisher struct {
-}
+type NoopEmailPublisher struct{}
 
 func (n NoopEmailPublisher) PublishTransactionEmail(ctx context.Context, event TransactionEmailEvent) error {
+
 	return nil
 }
