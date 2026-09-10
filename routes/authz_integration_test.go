@@ -26,6 +26,7 @@ func TestMain(m *testing.M) {
 	os.Setenv("ENV", "test")
 	os.Setenv("JWT_SECRET", "test-only-secret-for-authz-suite-do-not-use")
 	os.Setenv("DATABASE_URL", "postgres://postgres:analissa@localhost:5432/finance_app_test?sslmode=disable")
+	os.Setenv("RABBIT_URL", "amqp://guest:guest@localhost:5672/")
 
 	db := repositories.GetDB()
 	// Several of this suite's assertions are deliberately "not found" — quiet
@@ -103,11 +104,12 @@ func newTestEngine() *gin.Engine {
 	// An empty-prefix group, not r.Group("/api"): the request paths below were
 	// written before main.go mounted routers under /api and assume no prefix.
 	memoryBroker := events.NewMemoryBroker()
+	rabbit, _ := events.NewRabbitPublisher(os.Getenv("RABBIT_URL"))
 	root := r.Group("")
 	UserRouter(root)
 	FinanceRouter(root)
 	CategoryRouter(root)
-	TransactionRouter(root, memoryBroker)
+	TransactionRouter(root, memoryBroker, rabbit)
 	SubcategoryRouter(root)
 	IncomeSourceRouter(root)
 	SavingRouter(root)

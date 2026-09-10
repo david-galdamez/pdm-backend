@@ -245,6 +245,44 @@ func (r *SharedFinanceRepository) LeaveSharedFinance(userId, financeId uint) err
 	return r.DB.Save(&sharedFinance).Error
 }
 
-func (r *SharedFinanceRepository) GetTransactionEmailTargets(financeId, actorUserId uint) (TransactionEmailTargets, error) {
-	return TransactionEmailTargets{}, nil
+func (r *SharedFinanceRepository) GetTransactionEmailTargets(financeId, actorUserId uint) (*TransactionEmailTargets, error) {
+	var financeName string
+	var actorName string
+
+	err := r.DB.Model(models.Finance{}).Select("finances.title as financeName").
+		Where("finances.id = ?", financeId).
+		Scan(&financeName).
+		Error
+	if err != nil {
+		return nil, err
+	}
+
+	if financeName == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+
+	err = r.DB.Model(models.User{}).Select("users.name as userName").
+		Where("users.id = ?", actorUserId).
+		Scan(&actorName).
+		Error
+	if err != nil {
+		return nil, err
+	}
+
+	var recipients []Recipient
+
+	err = r.DB.Model(models.User{}).Select("users.id as user_id, users.name as name, users.email as email").
+		Joins("JOIN shared_finances ON shared_finances.user_id = users.id AND users.deleted_at IS NULL AND users.id != ?", actorUserId).
+		Where("shared_finances.finance_id = ? AND shared_finances.active = ?", financeId, true).
+		Scan(&recipients).
+		Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &TransactionEmailTargets{
+		FinanceName: financeName,
+		ActorName:   actorName,
+		Recipients:  recipients,
+	}, nil
 }

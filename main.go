@@ -63,7 +63,7 @@ func main() {
 	sharedFinanceRepo := repositories.NewSharedFinanceRepository(repositories.GetDB())
 	handler := websockets.NewSharedFinanceWS(sharedFinanceRepo, &wg, doneWS)
 	broker := events.NewMemoryBroker()
-	emailPublisher, err := events.NewRabbitPublisher("")
+	emailPublisher, err := events.NewRabbitPublisher(cfg.RABBIT_URL)
 	if err != nil {
 		log.Fatalf("Failed to create RabbitMQ publisher: %v", err)
 	}

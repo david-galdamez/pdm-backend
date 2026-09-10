@@ -14,6 +14,7 @@ type Config struct {
 	ENV          string
 	DATABASE_URL string
 	JWT_SECRET   string
+	RABBIT_URL   string
 	// ALLOWED_ORIGINS is the CORS allowlist. Native mobile clients send no
 	// Origin header and are unaffected by it; it only constrains browsers.
 	ALLOWED_ORIGINS []string
@@ -83,11 +84,18 @@ func load() Config {
 		}
 	}
 
+	rabbitUrl := os.Getenv("RABBIT_URL")
+	if rabbitUrl == "" {
+		log.Println("RABBIT_URL environment variable is not set")
+		rabbitUrl = "amqp://guest:guest@localhost:5672/"
+	}
+
 	return Config{
 		PORT:         port,
 		ENV:          env,
 		DATABASE_URL: databaseURL,
 		JWT_SECRET:   secret,
+		RABBIT_URL:   rabbitUrl,
 
 		ALLOWED_ORIGINS: origins,
 	}

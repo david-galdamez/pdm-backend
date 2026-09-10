@@ -1,13 +1,13 @@
 package repositories
 
 type Recipient struct {
-	UserID uint
-	Name   string
-	Email  string
+	UserID uint   `json:"user_id"`
+	Name   string `json:"name"`
+	Email  string `json:"email"`
 }
 
 type TransactionEmailTargets struct {
-	FinanceName string
-	ActorName   string
-	Recipients  []Recipient
+	FinanceName string      `json:"finance_name"`
+	ActorName   string      `json:"actor_name"`
+	Recipients  []Recipient `json:"recipients"`
 }
