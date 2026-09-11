@@ -22,19 +22,15 @@ type Target interface {
 	GetTransactionEmailTargets(financeId, userId uint) (*repositories.TransactionEmailTargets, error)
 }
 
-type Sender interface {
-	Send(ctx context.Context, message email.Message) error
-}
-
 type Dispatcher struct {
 	target Target
-	sender Sender
+	sender email.Sender
 }
 
-type EmailTarget struct {
+type EmailTransactionTarget struct {
 }
 
-func (et EmailTarget) GetTransactionEmailTargets(financeId, userId uint) (*repositories.TransactionEmailTargets, error) {
+func (et EmailTransactionTarget) GetTransactionEmailTargets(financeId, userId uint) (*repositories.TransactionEmailTargets, error) {
 
 	sharedRepo := repositories.NewSharedFinanceRepository(repositories.GetDB())
 
@@ -47,12 +43,17 @@ func (d *Dispatcher) Handle(ctx context.Context, body []byte) HandlerResponse {
 
 	err := json.Unmarshal(body, &emailEvent)
 	if err != nil {
-		return ResultDead
+		return ResultAck
+	}
+
+	if emailEvent.Type != events.RoutingKeyTransactionCreated || emailEvent.Version != events.EmailEventVersion {
+		log.Printf("ignoring event %s: type=%q version=%d", emailEvent.ID, emailEvent.Type, emailEvent.Version)
+		return ResultAck
 	}
 
 	targets, err := d.target.GetTransactionEmailTargets(emailEvent.FinanceID, emailEvent.ActorUserID)
 	if err != nil {
-		return ResultRetry
+		return ResultDead
 	}
 	if targets == nil || len(targets.Recipients) == 0 {
 		return ResultAck
@@ -80,10 +81,14 @@ func (d *Dispatcher) Handle(ctx context.Context, body []byte) HandlerResponse {
 		}
 	}
 
+	if failed > 0 {
+		return ResultDead
+	}
+
 	return ResultAck
 }
 
-func NewDispatcher(target Target, sender Sender) Dispatcher {
+func NewDispatcher(target Target, sender email.Sender) Dispatcher {
 	return Dispatcher{
 		target: target,
 		sender: sender,

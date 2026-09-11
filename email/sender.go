@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"net"
 	"net/smtp"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -22,13 +21,13 @@ type Message struct {
 
 type SmtpSender struct {
 	host     string
-	port     int
+	port     string
 	username string
 	password string
 	from     string
 }
 
-func NewSMTPSender(host string, port int, username, password, from string) SmtpSender {
+func NewSMTPSender(host, port, username, password, from string) SmtpSender {
 	return SmtpSender{
 		host:     host,
 		port:     port,
@@ -44,7 +43,7 @@ func (s SmtpSender) Send(ctx context.Context, message Message) error {
 		return nil
 	}
 
-	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(s.host, strconv.Itoa(s.port)))
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(s.host, s.port))
 	if err != nil {
 		return err
 	}
@@ -77,8 +76,11 @@ func (s SmtpSender) Send(ctx context.Context, message Message) error {
 	}
 	defer smtpClient.Close()
 
-	smtpClient.StartTLS(&tls.Config{ServerName: s.host})
-	smtpClient.Extension("STARTTLS")
+	if ok, _ := smtpClient.Extension("STARTTLS"); ok {
+		if err := smtpClient.StartTLS(&tls.Config{ServerName: s.host}); err != nil {
+			return err
+		}
+	}
 
 	if s.username != "" {
 		auth := smtp.PlainAuth("", s.username, s.password, s.host)
@@ -106,7 +108,7 @@ func (s SmtpSender) Send(ctx context.Context, message Message) error {
 	smtpMessage := "From: " + s.from + "\r\n" +
 		"To: " + strings.Join(message.To, ", ") + "\r\n" +
 		"Subject: " + message.Subject + "\r\n" +
-		"Content-Type: text/html\r\n" +
+		"Content-Type: text/html; charset=UTF-8\r\n" +
 		"MIME-Version: 1.0\r\n\r\n" +
 		message.HTMLBody + "\r\n"
 

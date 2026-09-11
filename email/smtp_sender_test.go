@@ -48,13 +48,10 @@ func (s *fakeSMTP) host() string {
 	return host
 }
 
-func (s *fakeSMTP) port() int {
+func (s *fakeSMTP) port() string {
 	_, port, _ := net.SplitHostPort(s.addr())
 
-	var p int
-	fmt.Sscanf(port, "%d", &p)
-
-	return p
+	return port
 }
 
 func (s *fakeSMTP) serve() {
@@ -233,7 +230,7 @@ func TestSMTPSenderSkipsAMessageWithNoRecipients(t *testing.T) {
 // parking the worker's prefetch slot indefinitely.
 func TestSMTPSenderHonoursContextDeadline(t *testing.T) {
 	// Port 1 is reserved and refuses or blackholes connections.
-	sender := NewSMTPSender("127.0.0.1", 1, "", "", "noreply@example.test")
+	sender := NewSMTPSender("127.0.0.1", "1", "", "", "noreply@example.test")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()

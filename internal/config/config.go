@@ -14,7 +14,15 @@ type Config struct {
 	ENV          string
 	DATABASE_URL string
 	JWT_SECRET   string
-	RABBIT_URL   string
+
+	RABBIT_URL string
+
+	SMTP_HOST     string
+	SMTP_PORT     string
+	SMTP_USERNAME string
+	SMTP_PASSWORD string
+	SMTP_FROM     string
+
 	// ALLOWED_ORIGINS is the CORS allowlist. Native mobile clients send no
 	// Origin header and are unaffected by it; it only constrains browsers.
 	ALLOWED_ORIGINS []string
@@ -86,8 +94,37 @@ func load() Config {
 
 	rabbitUrl := os.Getenv("RABBIT_URL")
 	if rabbitUrl == "" {
-		log.Println("RABBIT_URL environment variable is not set")
+		log.Println("RABBIT_URL environment variable is not set, using default value 'amqp://guest:guest@localhost:5672/'")
 		rabbitUrl = "amqp://guest:guest@localhost:5672/"
+	}
+
+	// SMTP_USERNAME/SMTP_PASSWORD have no fallback value: an empty string
+	// means "connect without AUTH", which is exactly what a local dev SMTP
+	// catcher (Mailpit, MailHog) expects. A real relay (SES, SendGrid, ...)
+	// requires these to be set explicitly.
+	smtpHost := os.Getenv("SMTP_HOST")
+	if smtpHost == "" {
+		log.Println("SMTP_HOST environment variable is not set, using default value 'localhost'")
+		smtpHost = "localhost"
+	}
+
+	smtpPort := os.Getenv("SMTP_PORT")
+	if smtpPort == "" {
+		log.Println("SMTP_PORT environment variable is not set, using default port 1025")
+		smtpPort = "1025"
+	}
+
+	smtpUsername := os.Getenv("SMTP_USERNAME")
+	if smtpUsername == "" {
+		log.Println("SMTP_USERNAME environment variable is not set, connecting without SMTP auth")
+	}
+
+	smtpPassword := os.Getenv("SMTP_PASSWORD")
+
+	smtpFrom := os.Getenv("SMTP_FROM")
+	if smtpFrom == "" {
+		log.Println("SMTP_FROM environment variable is not set, using default value 'noreply@localhost'")
+		smtpFrom = "noreply@localhost"
 	}
 
 	return Config{
@@ -95,7 +132,14 @@ func load() Config {
 		ENV:          env,
 		DATABASE_URL: databaseURL,
 		JWT_SECRET:   secret,
-		RABBIT_URL:   rabbitUrl,
+
+		RABBIT_URL: rabbitUrl,
+
+		SMTP_HOST:     smtpHost,
+		SMTP_PORT:     smtpPort,
+		SMTP_USERNAME: smtpUsername,
+		SMTP_PASSWORD: smtpPassword,
+		SMTP_FROM:     smtpFrom,
 
 		ALLOWED_ORIGINS: origins,
 	}
