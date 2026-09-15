@@ -9,7 +9,9 @@ package events
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -59,6 +61,8 @@ func TestNewRabbitPublisherRejectsAMalformedURL(t *testing.T) {
 func TestRabbitPublisherDeclaresTopology(t *testing.T) {
 	url := rabbitURL(t)
 
+	freshQueues(t, url)
+
 	publisher, err := NewRabbitPublisher(url)
 	if err != nil {
 		t.Fatalf("connecting to the broker: %v", err)
@@ -79,6 +83,8 @@ func TestRabbitPublisherDeclaresTopology(t *testing.T) {
 // The end-to-end path: what the controller publishes is what the worker reads.
 func TestRabbitPublisherRoundTrip(t *testing.T) {
 	url := rabbitURL(t)
+
+	freshQueues(t, url)
 
 	publisher, err := NewRabbitPublisher(url)
 	if err != nil {
@@ -130,6 +136,8 @@ func TestRabbitPublisherRoundTrip(t *testing.T) {
 func TestRabbitPublisherIsSafeForConcurrentUse(t *testing.T) {
 	url := rabbitURL(t)
 
+	freshQueues(t, url)
+
 	publisher, err := NewRabbitPublisher(url)
 	if err != nil {
 		t.Fatalf("connecting to the broker: %v", err)
@@ -168,6 +176,8 @@ func TestRabbitPublisherIsSafeForConcurrentUse(t *testing.T) {
 // reading, so the call honours a deadline.
 func TestRabbitPublisherHonoursContextDeadline(t *testing.T) {
 	url := rabbitURL(t)
+
+	freshQueues(t, url)
 
 	publisher, err := NewRabbitPublisher(url)
 	if err != nil {
@@ -228,5 +238,292 @@ func consumeOne(t *testing.T, url string, timeout time.Duration) ([]byte, amqp.D
 	case <-time.After(timeout):
 		t.Fatalf("no delivery on %s within %v", EmailTransactionQueue, timeout)
 		return nil, amqp.Delivery{}
+	}
+}
+
+// An event whose Type is not bound to any queue matches nothing on the
+// exchange. The broker hands it straight back, and that has to reach the caller
+// as an error rather than a log line, because the publish "succeeded" as far as
+// the socket is concerned.
+func TestPublishReportsAnUnroutableEvent(t *testing.T) {
+	url := rabbitURL(t)
+
+	freshQueues(t, url)
+
+	publisher, err := NewRabbitPublisher(url)
+	if err != nil {
+		t.Fatalf("connecting to the broker: %v", err)
+	}
+	defer publisher.Close()
+
+	event := BuildTransactionEmailEvent(7, 42, 2, 10, "unroutable")
+	event.Type = "transaction.nothing.is.bound.to.this"
+
+	err = publisher.PublishTransactionEmail(context.Background(), event)
+	if err == nil {
+		t.Fatal("PublishTransactionEmail reported success for an event no queue is bound to")
+	}
+
+	if !errors.Is(err, ErrUnroutable) {
+		t.Fatalf("err = %v, want it to wrap ErrUnroutable", err)
+	}
+
+	// The routing key is the whole diagnosis: it says which binding is missing.
+	if !strings.Contains(err.Error(), event.Type) {
+		t.Errorf("error %q does not name the routing key %q", err, event.Type)
+	}
+}
+
+// Republishing a returned event would hit the same missing binding and be
+// returned again, forever. The publisher must report and stop.
+func TestPublishDoesNotRetryAnUnroutableEvent(t *testing.T) {
+	url := rabbitURL(t)
+
+	freshQueues(t, url)
+
+	publisher, err := NewRabbitPublisher(url)
+	if err != nil {
+		t.Fatalf("connecting to the broker: %v", err)
+	}
+	defer publisher.Close()
+
+	event := BuildTransactionEmailEvent(7, 42, 2, 10, "unroutable")
+	event.Type = "transaction.nothing.is.bound.to.this"
+
+	done := make(chan error, 1)
+	go func() {
+		done <- publisher.PublishTransactionEmail(context.Background(), event)
+	}()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrUnroutable) {
+			t.Fatalf("err = %v, want ErrUnroutable", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("PublishTransactionEmail never returned: it is retrying a message that can never be routed")
+	}
+}
+
+// The return is asynchronous and arrives on a shared channel, so a stale one
+// must not be charged to the next publish. This is the case the drain at the
+// top of PublishTransactionEmail exists for.
+func TestPublishDoesNotBlameAStaleReturnOnTheNextEvent(t *testing.T) {
+	url := rabbitURL(t)
+
+	freshQueues(t, url)
+
+	publisher, err := NewRabbitPublisher(url)
+	if err != nil {
+		t.Fatalf("connecting to the broker: %v", err)
+	}
+	defer publisher.Close()
+
+	unroutable := BuildTransactionEmailEvent(7, 42, 2, 10, "unroutable")
+	unroutable.Type = "transaction.nothing.is.bound.to.this"
+
+	if err := publisher.PublishTransactionEmail(context.Background(), unroutable); !errors.Is(err, ErrUnroutable) {
+		t.Fatalf("setup publish err = %v, want ErrUnroutable", err)
+	}
+
+	// A well-formed event published straight afterwards routes fine and must be
+	// reported as such.
+	if err := publisher.PublishTransactionEmail(
+		context.Background(),
+		BuildTransactionEmailEvent(7, 42, 2, 10, "routable"),
+	); err != nil {
+		t.Fatalf("a routable event was reported as failed: %v", err)
+	}
+
+	consumeOne(t, url, 5*time.Second)
+}
+
+// A successful publish means the broker confirmed it, not that the frame was
+// written. Without the confirm this passes even when the message never lands.
+func TestPublishWaitsForTheBrokerConfirm(t *testing.T) {
+	url := rabbitURL(t)
+
+	freshQueues(t, url)
+
+	publisher, err := NewRabbitPublisher(url)
+	if err != nil {
+		t.Fatalf("connecting to the broker: %v", err)
+	}
+	defer publisher.Close()
+
+	event := BuildTransactionEmailEvent(7, 42, 2, 10, "confirmed")
+
+	if err := publisher.PublishTransactionEmail(context.Background(), event); err != nil {
+		t.Fatalf("publishing: %v", err)
+	}
+
+	// The confirm means the queue already holds it, so it is readable with no
+	// grace period.
+	body, _ := consumeOne(t, url, time.Second)
+
+	var received TransactionEmailEvent
+	if err := json.Unmarshal(body, &received); err != nil {
+		t.Fatalf("unmarshalling the delivered body: %v", err)
+	}
+
+	if received.ID != event.ID {
+		t.Errorf("delivered ID = %q, want %q", received.ID, event.ID)
+	}
+}
+
+// Publishing on a closed channel must come back as an error, not a panic or a
+// silent success: it is what a dropped connection looks like to a live handler.
+func TestPublishReportsAClosedChannel(t *testing.T) {
+	url := rabbitURL(t)
+
+	freshQueues(t, url)
+
+	publisher, err := NewRabbitPublisher(url)
+	if err != nil {
+		t.Fatalf("connecting to the broker: %v", err)
+	}
+
+	publisher.Close()
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("panicked publishing on a closed publisher: %v", r)
+		}
+	}()
+
+	if err := publisher.PublishTransactionEmail(
+		context.Background(),
+		BuildTransactionEmailEvent(7, 42, 2, 10, ""),
+	); err == nil {
+		t.Fatal("PublishTransactionEmail reported success on a closed publisher")
+	}
+}
+
+// The dead-letter binding is what makes a rejected email inspectable instead of
+// silently discarded. The broker republishes to the DLX with
+// x-dead-letter-routing-key, so the dead queue must be bound with that key and
+// not the original one.
+func TestDeadLetteredEventReachesTheDeadQueue(t *testing.T) {
+	url := rabbitURL(t)
+
+	freshQueues(t, url)
+
+	publisher, err := NewRabbitPublisher(url)
+	if err != nil {
+		t.Fatalf("connecting to the broker: %v", err)
+	}
+	defer publisher.Close()
+
+	event := BuildTransactionEmailEvent(7, 42, 2, 10, "dead lettered")
+
+	if err := publisher.PublishTransactionEmail(context.Background(), event); err != nil {
+		t.Fatalf("publishing: %v", err)
+	}
+
+	// Reject it the way the worker rejects a send it could not complete.
+	nackOne(t, url, EmailTransactionQueue)
+
+	body := readFrom(t, url, EmailTransactionDeadQueue, 5*time.Second)
+
+	var dead TransactionEmailEvent
+	if err := json.Unmarshal(body, &dead); err != nil {
+		t.Fatalf("unmarshalling the dead-lettered body: %v", err)
+	}
+
+	if dead.ID != event.ID {
+		t.Errorf("dead-lettered ID = %q, want %q", dead.ID, event.ID)
+	}
+}
+
+// channelTo opens a throwaway channel on its own connection, so a case can act
+// on the broker without disturbing the publisher under test.
+func channelTo(t *testing.T, url string) *amqp.Channel {
+	t.Helper()
+
+	conn, err := amqp.Dial(url)
+	if err != nil {
+		t.Fatalf("dialling the broker: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	ch, err := conn.Channel()
+	if err != nil {
+		t.Fatalf("opening a channel: %v", err)
+	}
+	t.Cleanup(func() { ch.Close() })
+
+	return ch
+}
+
+// drain empties a queue so a case starts from a known state; the queues are
+// durable and survive both the process and the broker.
+func drain(t *testing.T, url, queue string) {
+	t.Helper()
+
+	if _, err := channelTo(t, url).QueuePurge(queue, false); err != nil {
+		t.Fatalf("purging %s: %v", queue, err)
+	}
+}
+
+// freshQueues empties both queues before and after a case. Without it the cases
+// are order-dependent: every message any of them publishes stays in the durable
+// queue, so the next one to read asserts against a leftover instead of its own
+// event.
+func freshQueues(t *testing.T, url string) {
+	t.Helper()
+
+	purge := func() {
+		drain(t, url, EmailTransactionQueue)
+		drain(t, url, EmailTransactionDeadQueue)
+	}
+
+	purge()
+	t.Cleanup(purge)
+}
+
+// nackOne rejects a single delivery without requeueing it, which is what sends
+// it to the dead-letter exchange.
+func nackOne(t *testing.T, url, queue string) {
+	t.Helper()
+
+	ch := channelTo(t, url)
+
+	delivery, ok, err := ch.Get(queue, false)
+	if err != nil {
+		t.Fatalf("getting from %s: %v", queue, err)
+	}
+
+	if !ok {
+		t.Fatalf("%s was empty; the publish did not land", queue)
+	}
+
+	if err := delivery.Nack(false, false); err != nil {
+		t.Fatalf("nacking: %v", err)
+	}
+}
+
+// readFrom waits for one message on a queue and acks it, leaving the queue
+// empty for the next case.
+func readFrom(t *testing.T, url, queue string, timeout time.Duration) []byte {
+	t.Helper()
+
+	ch := channelTo(t, url)
+
+	deliveries, err := ch.Consume(queue, "", false, false, false, false, nil)
+	if err != nil {
+		t.Fatalf("consuming from %s: %v", queue, err)
+	}
+
+	select {
+	case delivery := <-deliveries:
+		if err := delivery.Ack(false); err != nil {
+			t.Fatalf("acking: %v", err)
+		}
+
+		return delivery.Body
+
+	case <-time.After(timeout):
+		t.Fatalf("no delivery on %s within %v", queue, timeout)
+		return nil
 	}
 }

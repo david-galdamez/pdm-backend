@@ -43,7 +43,8 @@ func DeclareTopology(ch *amqp.Channel) error {
 		false, // exclusive
 		false, // no-wait
 		amqp.Table{
-			"x-dead-letter-exchange": DeadLetterExchange,
+			"x-dead-letter-exchange":    DeadLetterExchange,
+			"x-dead-letter-routing-key": RoutingKeyTransactionDead,
 		},
 	)
 	if err != nil {
@@ -75,7 +76,7 @@ func DeclareTopology(ch *amqp.Channel) error {
 
 	err = ch.QueueBind(
 		EmailTransactionDeadQueue,
-		RoutingKeyTransactionCreated,
+		RoutingKeyTransactionDead,
 		DeadLetterExchange,
 		false, // no-wait
 		nil,   // arguments

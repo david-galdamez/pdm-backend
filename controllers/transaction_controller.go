@@ -221,8 +221,12 @@ func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
 
 	if isSharedFinance {
 		h.publisher.Publish(financeId, isSaving)
-		h.emailPublisher.PublishTransactionEmail(
+		// The row is already committed, so a broker that is unreachable or a
+		// routing key nothing is bound to must be logged, never returned: the
+		// caller still gets a 201.
+		events.TryPublishTransactionEmail(
 			context.WithoutCancel(c.Request.Context()),
+			h.emailPublisher,
 			events.BuildTransactionEmailEvent(
 				financeId,
 				userClaims.UserID,

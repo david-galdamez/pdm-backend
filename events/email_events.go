@@ -15,7 +15,14 @@ const (
 	EmailTransactionQueue        = "email.transaction"
 	EmailTransactionDeadQueue    = "email.transaction.dead"
 	RoutingKeyTransactionCreated = "transaction.created"
-	EmailEventVersion            = 1
+	// RoutingKeyTransactionDead is what the broker stamps on a message it
+	// dead-letters out of EmailTransactionQueue. Without x-dead-letter-routing-key
+	// the message keeps its original key, so a second event type would arrive at
+	// the DLX matching no binding and be dropped without a trace: mandatory only
+	// applies to publishes from a client, never to the broker's own dead-letter
+	// republish, so there is no return to notice it by.
+	RoutingKeyTransactionDead = "email.transaction.dead"
+	EmailEventVersion         = 1
 )
 
 type EmailPublisher interface {
