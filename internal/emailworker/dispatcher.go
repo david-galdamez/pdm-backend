@@ -15,7 +15,6 @@ type HandlerResponse int
 const (
 	ResultAck HandlerResponse = iota
 	ResultDead
-	ResultRetry
 )
 
 type Target interface {
@@ -88,8 +87,8 @@ func (d *Dispatcher) Handle(ctx context.Context, body []byte) HandlerResponse {
 	return ResultAck
 }
 
-func NewDispatcher(target Target, sender email.Sender) Dispatcher {
-	return Dispatcher{
+func NewDispatcher(target Target, sender email.Sender) *Dispatcher {
+	return &Dispatcher{
 		target: target,
 		sender: sender,
 	}

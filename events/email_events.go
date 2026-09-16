@@ -72,6 +72,5 @@ func TryPublishTransactionEmail(ctx context.Context, publisher EmailPublisher, e
 type NoopEmailPublisher struct{}
 
 func (n NoopEmailPublisher) PublishTransactionEmail(ctx context.Context, event TransactionEmailEvent) error {
-
 	return nil
 }

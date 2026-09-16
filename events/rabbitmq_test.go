@@ -527,3 +527,86 @@ func readFrom(t *testing.T, url, queue string, timeout time.Duration) []byte {
 		return nil
 	}
 }
+
+// Without a reconnect the publisher is dead for the life of the process: every
+// later publish fails on a channel that will never reopen, so the API stops
+// producing email events after any broker restart and never recovers.
+func TestPublisherReconnectsAfterTheConnectionDrops(t *testing.T) {
+	url := rabbitURL(t)
+
+	freshQueues(t, url)
+
+	publisher, err := NewRabbitPublisher(url)
+	if err != nil {
+		t.Fatalf("connecting to the broker: %v", err)
+	}
+	defer publisher.Close()
+
+	// Kill the connection the way a broker restart or a network blip would.
+	publisher.mu.Lock()
+	conn := publisher.conn
+	publisher.mu.Unlock()
+
+	if err := conn.Close(); err != nil {
+		t.Fatalf("closing the connection: %v", err)
+	}
+
+	// The first publish after the drop is expected to fail; the loop is waiting
+	// for the reconnect to land, not asserting that it already has.
+	event := BuildTransactionEmailEvent(7, 42, 2, 10, "after reconnect")
+
+	deadline := time.Now().Add(20 * time.Second)
+
+	var lastErr error
+	for time.Now().Before(deadline) {
+		if lastErr = publisher.PublishTransactionEmail(context.Background(), event); lastErr == nil {
+			break
+		}
+
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	if lastErr != nil {
+		t.Fatalf("publisher never recovered from the dropped connection: %v", lastErr)
+	}
+
+	body, _ := consumeOne(t, url, 5*time.Second)
+
+	var received TransactionEmailEvent
+	if err := json.Unmarshal(body, &received); err != nil {
+		t.Fatalf("unmarshalling the delivered body: %v", err)
+	}
+
+	if received.ID != event.ID {
+		t.Errorf("delivered ID = %q, want %q", received.ID, event.ID)
+	}
+}
+
+// Close must win against the reconnect loop, otherwise a shutdown races a
+// redial and leaves a connection behind.
+func TestClosedPublisherDoesNotReconnect(t *testing.T) {
+	url := rabbitURL(t)
+
+	freshQueues(t, url)
+
+	publisher, err := NewRabbitPublisher(url)
+	if err != nil {
+		t.Fatalf("connecting to the broker: %v", err)
+	}
+
+	publisher.Close()
+
+	// Long enough for the backoff's first attempt to have fired.
+	time.Sleep(1500 * time.Millisecond)
+
+	if !publisher.isClosed() {
+		t.Fatal("publisher reported itself open after Close")
+	}
+
+	if err := publisher.PublishTransactionEmail(
+		context.Background(),
+		BuildTransactionEmailEvent(7, 42, 2, 10, ""),
+	); err == nil {
+		t.Fatal("a closed publisher accepted a publish: it reconnected after Close")
+	}
+}

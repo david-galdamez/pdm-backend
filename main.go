@@ -63,9 +63,14 @@ func main() {
 	sharedFinanceRepo := repositories.NewSharedFinanceRepository(repositories.GetDB())
 	handler := websockets.NewSharedFinanceWS(sharedFinanceRepo, &wg, doneWS)
 	broker := events.NewMemoryBroker()
-	emailPublisher, err := events.NewRabbitPublisher(cfg.RABBIT_URL)
-	if err != nil {
-		log.Fatalf("Failed to create RabbitMQ publisher: %v", err)
+
+	var emailPublisher events.EmailPublisher = events.NoopEmailPublisher{}
+
+	if rp, err := events.NewRabbitPublisher(cfg.RABBIT_URL); err != nil {
+		log.Printf("email events disabled, no broker: %v", err)
+	} else {
+		emailPublisher = rp
+		defer rp.Close()
 	}
 
 	subCtx, cancelSub := context.WithCancel(context.Background())
