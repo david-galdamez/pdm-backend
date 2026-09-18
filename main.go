@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"pdm-backend/events"
 	"pdm-backend/internal/config"
 	"pdm-backend/middlewares"
 	"pdm-backend/repositories"
@@ -61,12 +62,25 @@ func main() {
 
 	sharedFinanceRepo := repositories.NewSharedFinanceRepository(repositories.GetDB())
 	handler := websockets.NewSharedFinanceWS(sharedFinanceRepo, &wg, doneWS)
-	go handler.HandleBroadCast()
+	broker := events.NewMemoryBroker()
+
+	var emailPublisher events.EmailPublisher = events.NoopEmailPublisher{}
+
+	if rp, err := events.NewRabbitPublisher(cfg.RABBIT_URL); err != nil {
+		log.Printf("email events disabled, no broker: %v", err)
+	} else {
+		emailPublisher = rp
+		defer rp.Close()
+	}
+
+	subCtx, cancelSub := context.WithCancel(context.Background())
+	defer cancelSub()
+	go handler.HandleBroadCast(subCtx, broker)
 
 	routes.UserRouter(api)
 	routes.FinanceRouter(api)
 	routes.CategoryRouter(api)
-	routes.TransactionRouter(api)
+	routes.TransactionRouter(api, broker, emailPublisher)
 	routes.SubcategoryRouter(api)
 	routes.IncomeSourceRouter(api)
 	routes.SavingRouter(api)

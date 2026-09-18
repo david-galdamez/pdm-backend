@@ -10,9 +10,12 @@ released, so breaking changes to the API/schema are acceptable.
 `routes/` wire `middlewares/` → `controllers/` → `repositories/` → `models/`.
 Every `*Router` func takes a `*gin.RouterGroup`, not `*gin.Engine` — `main.go`
 mounts them all under `api := r.Group("/api")`. `services/` is a grab-bag (JWT,
-claims, query parsing). `websockets/` runs a single broadcast goroutine reading
-from `websockets.BroadcastMessages`. `internal/config` is the single source of
-env vars — never read `os.Getenv` elsewhere.
+claims, query parsing). `websockets/` runs a single broadcast goroutine that
+subscribes to an `events.Subscriber` (`HandleBroadCast(ctx, sub)`); producers
+call `events.Publisher.Publish`. Both interfaces live in `events/`, and
+`events.MemoryBroker` is the in-process implementation of both (a buffered Go
+channel), wired in `main.go`. `internal/config` is the single source of env
+vars — never read `os.Getenv` elsewhere.
 
 ## Commands
 
@@ -120,9 +123,158 @@ Postgres answers, so `go test ./...` works without one — unlike the `routes`
 suite, which hard-fails. Override the server with `TEST_POSTGRES_DSN` (a format
 string with one `%s` for the database name).
 
+`events/memory_broker_test.go` covers `MemoryBroker` with no DB: delivery and
+event-set shape (saving adds `finance_savings`), FIFO order, `Subscribe`
+returning on `ctx` cancel, and `Publish` never blocking once the buffer is
+full.
+
 Still untested: websocket dispatch itself, the graceful-shutdown close
 handshake, the rate limiter (`middlewares/rate_limiter.go` has no test file),
 and the transaction-creation branches end to end through the router.
+
+## Messaging & scaling plan — decided, publisher interface extracted
+
+The app currently runs as a single instance and broadcasts websocket events
+over a buffered Go channel owned by `events.MemoryBroker`, behind the
+`events.Publisher` interface (`controllers/transaction_controller.go` holds an
+`events.Publisher`, not the channel). That is the correct design at one
+instance and is **not** a stopgap: no network hop, no serialization, ordering
+for free, no extra failure mode. Only the transport is now swappable.
+
+### The two use cases have different justifications
+Keeping them separate is what lets one be built now and the other deferred
+without it being a compromise:
+- **Websockets over a broker** is justified *only* by instance count. At one
+  instance a broker would be strictly worse in every dimension.
+- **Durable background work** (email) is justified by durability and by
+  getting slow work off the request path. Both hold at one instance, ten, or
+  a hundred — instance count never enters the argument.
+
+### Decision: RabbitMQ now for email, Redis later for fan-out
+- **RabbitMQ** for the email/notification worker, as its own binary added to
+  the existing multi-stage `Dockerfile` alongside `server`/`migrate`/`resetdb`.
+  Email is slow, must not be lost, fails transiently, and needs a dead-letter
+  queue for permanent failures — exactly RabbitMQ's feature set. A `jobs`
+  table in Postgres or Redis Streams would also work; RabbitMQ was chosen
+  deliberately for its retry/DLQ tooling and to learn the model properly.
+- **Redis Pub/Sub + a Redis rate limiter** only when a second instance is
+  actually needed. Not before.
+- **Not Kafka.** Nothing here is worth replaying, and partitions/offsets/
+  consumer groups buy nothing at this volume.
+- **Not RabbitMQ for the websocket fan-out**, even once multi-instance. It can
+  do it (fanout exchange + one `exclusive`/`auto-delete` queue per instance),
+  but see the traps below.
+
+### Prerequisite: extract the publisher interface — done
+`events/` now defines two interfaces: `Publisher` (`Publish(financeId, isSaving)
+error`, held by `TransactionHandler`) and `Subscriber` (`Subscribe(ctx,
+handler func(BroadCastMessage))`, consumed by `SharedFinanceWS.HandleBroadCast`).
+`events.MemoryBroker` implements both over one `chan BroadCastMessage` (buffer
+100): `Publish` builds the event with `BuildWebSocketEvent` and does a
+non-blocking send (drops + logs when the buffer is full, so an ephemeral ping
+never stalls the HTTP request); `Subscribe` ranges the channel until `ctx` is
+cancelled. `main.go` constructs the broker, passes it to `HandleBroadCast` with
+a cancellable `subCtx`, and threads it into `routes.TransactionRouter(api,
+broker)`. Redis later is a new `events/redis_broker.go` implementing the same
+two interfaces plus one line in `main.go`; nothing in `websockets/` or
+`controllers/` changes. Traps:
+- The producer side depends on `events.Publisher`, the ws goroutine on
+  `events.Subscriber` — segregated so each caller sees only what it needs —
+  but **one concrete struct implements both**, which is what makes "publisher
+  and subscriber are the same object, receiving its own messages back" (see
+  the Redis trap below) fall out for free.
+- `TransactionRouter` taking an `events.Publisher` param is the one break from
+  "every `*Router` takes only a `*gin.RouterGroup`". Test engines
+  (`routes/authz_integration_test.go`) build their own `events.NewMemoryBroker()`
+  and pass it in.
+- `HandleBroadCast` is now `Subscribe(ctx, sfws.dispatch)` — `dispatch` already
+  had the exact `func(events.BroadCastMessage)` signature the handler wants.
+  `subCtx` is only torn down by `defer cancelSub()` on `main` return, i.e. after
+  the graceful-shutdown `select`, not sequenced into it. Harmless for the
+  in-memory broker (the channel has nothing to flush); a Redis broker that
+  needs to drain in-flight work would want `cancelSub()` moved up next to
+  `close(doneWS)`.
+
+### What breaks at more than one instance
+The complete list today:
+1. `financeClients` (`websockets/websocket_handler.go`) plus
+   `events.MemoryBroker`'s in-process channel — process-local connection
+   registry and transport, so an event produced on instance A never reaches a
+   client connected to B. The `events.Publisher`/`events.Subscriber` seam is
+   already in place; this becomes swapping `MemoryBroker` for a Redis
+   implementation of the same two interfaces. → Redis Pub/Sub.
+2. `middlewares/rate_limiter.go` — per-process counters, so N instances give
+   N× the effective limit. → Redis counters, plus Gin trusted-proxy config so
+   `X-Forwarded-For` yields the real client IP behind a load balancer.
+
+Auth is already multi-instance-ready: JWT is stateless, so there is no session
+store to move.
+
+**The trigger is not always scale.** The day a background worker needs to push
+a websocket event (e.g. "invite email bounced, notify the finance"), the
+cross-process broker is required regardless of instance count.
+
+### Traps worth remembering
+- **Instances never connect to each other.** Each connects only to Redis, and
+  each is both publisher and subscriber on the same channel — *including
+  receiving its own messages back*. That is deliberate: one code path for "an
+  event arrived" instead of local-dispatch-here / broker-dispatch-there. Do
+  not filter out own messages.
+- **Redis Pub/Sub has zero buffering.** A message published while an
+  instance's subscriber is reconnecting is gone for that instance, forever.
+  Correct for these events, but it makes the subscriber's reconnect-with-
+  backoff loop load-bearing: it must never exit. If "no missed events" is ever
+  required, upgrade to Redis Streams (`XADD`/`XREADGROUP`) — same server, no
+  new dependency.
+- **Durability is a cost, not a free bonus.** RabbitMQ on the websocket path
+  would replay a 400-message backlog to clients after a 30s network hiccup;
+  suppressing that needs per-message TTL and `x-max-length`, i.e. paying for
+  durability and configuring it back off. Worse, an orphaned queue (a
+  `durable` misconfig, or a stale connection RabbitMQ hasn't reaped) accepts
+  events forever with nobody draining it until the memory watermark **blocks
+  publishers** — HTTP handlers then block on a queue for a server that no
+  longer exists. Redis Pub/Sub cannot accumulate anything.
+- **RabbitMQ cannot replace Redis here.** It is a broker, not a datastore — no
+  `INCR`, no TTL'd counters — so the rate limiter needs Redis regardless.
+  Using RabbitMQ for the fan-out never saves a dependency.
+- **Ack after the work succeeds, never on receive.** Ack means "safe to
+  delete"; acking early turns a crash mid-send into a lost email. Set a small
+  `prefetch`, otherwise one consumer grabs the whole queue and adding
+  consumers stops helping.
+- **At-least-once means duplicates.** Give every event a UUID so consumers can
+  dedupe, and decide explicitly whether to dedupe or tolerate the rare double
+  send.
+- **Rate limiter atomicity.** `INCR` then `EXPIRE` as two calls races: die in
+  between and the key has no TTL, locking that IP out permanently. Use
+  `SET key 0 EX 60 NX` first or a Lua script. Start with a fixed window — the
+  window-boundary 2× burst is acceptable for login throttling. **Fail open**
+  when Redis is down: taking down auth because the protection is unavailable
+  is worse than the attack it prevents.
+- **Publishing is a network call.** It must not fail the HTTP request for
+  ephemeral events (log and return 201), and it needs a context/timeout.
+  Committing the DB transaction and then publishing can disagree if the
+  publish fails; for anything that must not be lost the fix is the
+  **transactional outbox** (write the event to an `outbox` table inside the
+  same DB transaction, a poller publishes and marks it sent). Not worth
+  building for websocket pings.
+- **Serialization forces a contract.** Once it crosses a process it is bytes:
+  use JSON, add a version/type field now because rolling deploys mean old
+  instances receive new instances' messages, and unknown types must be ignored
+  rather than fatal. Never publish anything you wouldn't put in a log.
+- Local dispatch does not change. `dispatch`, `financeClients`, `writePump`
+  and the membership check stay exactly as they are — the broker only replaces
+  the transport *between* processes. The slow-client drop
+  (`websocket_handler.go`'s `default:` case) is still needed.
+
+### Build order
+1. ~~Extract the publisher interface. No infra.~~ Done — `events.Publisher` /
+   `events.Subscriber` / `events.MemoryBroker`.
+2. RabbitMQ + email worker as its own binary.
+3. Stop there while single-instance.
+4. Redis Pub/Sub + Redis rate limiter, when a second instance is actually
+   needed or a worker needs to emit websocket events. Acceptance test: two
+   `app` services in `docker-compose.yml`, a websocket client on each, create
+   a transaction through one, assert the event arrives on both.
 
 ## Conventions established during the refactor
 

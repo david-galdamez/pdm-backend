@@ -1,6 +1,7 @@
 # 🏃‍♂️ Personal Finance Backend (Go)
 
 [![CI](https://github.com/Befo0/pdm-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/Befo0/pdm-backend/actions/workflows/ci.yml)
+CI runs on every push/PR: `go vet` + `gofmt` checks, a full build (`go build ./...`), and the test suite against a Postgres service container.
 
 Backend for a personal finance mobile app, built with Go, Gin and PostgreSQL.
 
@@ -70,29 +71,35 @@ back to confirm.
 
 ## 🐳 Running with Docker
 
-An alternative to the local Go setup above — brings up Postgres and the app
-together, no local Go toolchain required.
+An alternative to the local Go setup above — brings up Postgres, RabbitMQ, the
+app, and the email worker together, no local Go toolchain required.
 
 ```bash
-docker compose up -d db             # start Postgres
+docker compose up -d db rabbitmq    # start Postgres and RabbitMQ
 docker compose run --rm migrate     # AutoMigrate + seed lookup tables
-docker compose up -d app            # build the image and start the server
+docker compose up -d app emailworker # build the image, start the server and the worker
 ```
 
-The API is then available on http://localhost:8080. `docker-compose.yml`
-picks reasonable defaults for `JWT_SECRET`/`ALLOWED_ORIGINS`/Postgres
-credentials for local dev (see the `x-app-env` block); override any of them by
-exporting the corresponding environment variable before running `docker
-compose`, e.g. `POSTGRES_PORT=15432` if port 5432 is already taken on your
-machine.
+The API is then available on http://localhost:8080, and the RabbitMQ
+management UI on http://localhost:15672 (default `guest`/`guest`).
+`docker-compose.yml` picks reasonable defaults for
+`JWT_SECRET`/`ALLOWED_ORIGINS`/Postgres/RabbitMQ credentials for local dev (see
+the `x-app-env` block); override any of them by exporting the corresponding
+environment variable before running `docker compose`, e.g.
+`POSTGRES_PORT=15432` or `RABBITMQ_PORT=15673` if the default port is already
+taken on your machine. `emailworker` sends through whatever `SMTP_*` you
+export (unset, it targets `localhost:1025`, i.e. nothing, inside the
+container — point it at a local catcher like Mailpit's SMTP port, or a real
+relay, if you want to see delivered emails).
 
-To rebuild the app image after changing code:
+To rebuild the images after changing code:
 
 ```bash
-docker compose up -d --build app
+docker compose up -d --build app emailworker
 ```
 
-`docker compose down -v` stops everything and removes the Postgres volume.
+`docker compose down -v` stops everything and removes the Postgres and
+RabbitMQ volumes.
 
 ## API
 
@@ -142,6 +149,34 @@ against brute-force attempts.
 Endpoints that operate on a finance accept an optional `?finance_id=` query
 parameter; without it they fall back to the caller's personal finance.
 Month-scoped endpoints take `?month=` and `?year=`.
+
+## Architecture & decisions
+
+Gin + GORM were chosen early on for development speed — this started as a
+university project on a tight deadline, so a batteries-included router and
+ORM mattered more than raw performance. Requests flow through a fixed
+pipeline: middleware → controller → repository → model.
+
+```
+Client → middlewares (auth, finance access, rate limit)
+       → controllers (bind + validate request)
+       → repositories (GORM queries, one DB transaction per write)
+       → models (Postgres)
+```
+
+Once the app moved past the university project stage, the backend went
+through a security/architecture hardening pass:
+
+- **Rate limiting** on `/auth/login` and `/auth/register` — these were
+  previously unprotected, leaving them open to brute-force credential
+  guessing.
+- **Graceful shutdown** — the server used to drop in-flight requests and
+  open websocket connections on deploy/restart; it now stops accepting new
+  connections and closes existing ones cleanly before exiting.
+- **Automated tests** (`controllers`, `repositories`, `routes`, `middlewares`)
+  — the original codebase had none, so correctness relied on manual
+  QA. Coverage was added for authorization, repository aggregation math, and
+  request validation, run automatically in CI on every push.
 
 ## Operational notes
 
