@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{if .IsIncome}}Income recorded{{else}}Expense recorded{{end}}</title>
+</head>
+<body style="font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #1a1a1a; margin: 0; padding: 24px;">
+  <h1 style="font-size: 20px; margin: 0 0 16px;">
+    {{if .IsIncome}}New income in {{.FinanceName}}{{else}}New expense in {{.FinanceName}}{{end}}
+  </h1>
+
+  <p style="margin: 0 0 16px;">
+    Hi {{.RecipientName}}, {{.ActorName}} just recorded a
+    {{if .IsIncome}}an income{{else}}an expense{{end}} in <strong>{{.FinanceName}}</strong>.
+  </p>
+
+  <table cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin: 0 0 16px;">
+    <tr>
+      <td style="padding: 8px 0; color: #666;">Description</td>
+      <td style="padding: 8px 0; text-align: right;">{{.Description}}</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #666;">Amount</td>
+      <td style="padding: 8px 0; text-align: right; font-weight: 600;">
+        {{if .IsIncome}}+{{else}}-{{end}}{{.Amount}}
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 8px 0; color: #666;">Date</td>
+      <td style="padding: 8px 0; text-align: right;">{{.OccurredAt}}</td>
+    </tr>
+  </table>
+
+  <p style="margin: 0; font-size: 12px; color: #999;">
+    You are receiving this because you share the finance {{.FinanceName}}.
+  </p>
+</body>
+</html>

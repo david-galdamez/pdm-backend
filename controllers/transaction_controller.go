@@ -1,12 +1,13 @@
 package controllers
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"pdm-backend/events"
 	"pdm-backend/models"
 	"pdm-backend/repositories"
 	"pdm-backend/services"
-	"pdm-backend/websockets"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -15,10 +16,12 @@ import (
 
 type TransactionHandler struct {
 	TransactionRepo *repositories.TransactionRepository
+	publisher       events.Publisher
+	emailPublisher  events.EmailPublisher
 }
 
-func NewTransactionHandler(transactionRepo *repositories.TransactionRepository) *TransactionHandler {
-	return &TransactionHandler{TransactionRepo: transactionRepo}
+func NewTransactionHandler(transactionRepo *repositories.TransactionRepository, publisher events.Publisher, emailPublisher events.EmailPublisher) *TransactionHandler {
+	return &TransactionHandler{TransactionRepo: transactionRepo, publisher: publisher, emailPublisher: emailPublisher}
 }
 
 func (h *TransactionHandler) GetTransactions(c *gin.Context) {
@@ -217,9 +220,21 @@ func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
 	}
 
 	if isSharedFinance {
-		webSocketEvent := h.TransactionRepo.BuildWebSocketEvent(financeId, transaction.ExpenseSubcategoryID, savingsId)
-
-		websockets.BroadcastMessages <- *webSocketEvent
+		h.publisher.Publish(financeId, isSaving)
+		// The row is already committed, so a broker that is unreachable or a
+		// routing key nothing is bound to must be logged, never returned: the
+		// caller still gets a 201.
+		events.TryPublishTransactionEmail(
+			context.WithoutCancel(c.Request.Context()),
+			h.emailPublisher,
+			events.BuildTransactionEmailEvent(
+				financeId,
+				userClaims.UserID,
+				transaction.EntryTypeID,
+				transaction.Amount,
+				*transaction.Description,
+			),
+		)
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"success": true, "message": "The transaction was created successfully"})

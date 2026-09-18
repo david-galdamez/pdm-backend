@@ -71,29 +71,35 @@ back to confirm.
 
 ## 🐳 Running with Docker
 
-An alternative to the local Go setup above — brings up Postgres and the app
-together, no local Go toolchain required.
+An alternative to the local Go setup above — brings up Postgres, RabbitMQ, the
+app, and the email worker together, no local Go toolchain required.
 
 ```bash
-docker compose up -d db             # start Postgres
+docker compose up -d db rabbitmq    # start Postgres and RabbitMQ
 docker compose run --rm migrate     # AutoMigrate + seed lookup tables
-docker compose up -d app            # build the image and start the server
+docker compose up -d app emailworker # build the image, start the server and the worker
 ```
 
-The API is then available on http://localhost:8080. `docker-compose.yml`
-picks reasonable defaults for `JWT_SECRET`/`ALLOWED_ORIGINS`/Postgres
-credentials for local dev (see the `x-app-env` block); override any of them by
-exporting the corresponding environment variable before running `docker
-compose`, e.g. `POSTGRES_PORT=15432` if port 5432 is already taken on your
-machine.
+The API is then available on http://localhost:8080, and the RabbitMQ
+management UI on http://localhost:15672 (default `guest`/`guest`).
+`docker-compose.yml` picks reasonable defaults for
+`JWT_SECRET`/`ALLOWED_ORIGINS`/Postgres/RabbitMQ credentials for local dev (see
+the `x-app-env` block); override any of them by exporting the corresponding
+environment variable before running `docker compose`, e.g.
+`POSTGRES_PORT=15432` or `RABBITMQ_PORT=15673` if the default port is already
+taken on your machine. `emailworker` sends through whatever `SMTP_*` you
+export (unset, it targets `localhost:1025`, i.e. nothing, inside the
+container — point it at a local catcher like Mailpit's SMTP port, or a real
+relay, if you want to see delivered emails).
 
-To rebuild the app image after changing code:
+To rebuild the images after changing code:
 
 ```bash
-docker compose up -d --build app
+docker compose up -d --build app emailworker
 ```
 
-`docker compose down -v` stops everything and removes the Postgres volume.
+`docker compose down -v` stops everything and removes the Postgres and
+RabbitMQ volumes.
 
 ## API
 

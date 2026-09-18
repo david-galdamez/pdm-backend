@@ -15,7 +15,8 @@ ENV CGO_ENABLED=0 GOOS=linux
 
 RUN go build -ldflags="-s -w" -o /out/server . && \
     go build -ldflags="-s -w" -o /out/migrate ./cmd/migrations && \
-    go build -ldflags="-s -w" -o /out/resetdb ./cmd/resetdb
+    go build -ldflags="-s -w" -o /out/resetdb ./cmd/resetdb && \
+    go build -ldflags="-s -w" -o /out/emailworker ./cmd/emailworker
 
 # --- final stage ----------------------------------------------------------
 FROM alpine:3.20
@@ -30,6 +31,7 @@ WORKDIR /app
 COPY --from=builder /out/server /app/server
 COPY --from=builder /out/migrate /app/migrate
 COPY --from=builder /out/resetdb /app/resetdb
+COPY --from=builder /out/emailworker /app/emailworker
 
 USER app
 

@@ -50,6 +50,16 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      rabbitmq:
+        image: rabbitmq:4-alpine
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -65,4 +75,7 @@ jobs:
           ENV: test
           JWT_SECRET: ci-only-secret-at-least-32-characters-long
           DATABASE_URL: postgres://postgres:analissa@localhost:5432/finance_app_test?sslmode=disable
-        run: go test ./...
+          # Set so events/rabbitmq_test.go's integration cases run instead of
+          # skipping (see rabbitURL in that file).
+          RABBITMQ_TEST_URL: amqp://guest:guest@localhost:5672/
+        run: go test -race ./...

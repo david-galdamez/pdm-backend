@@ -8,6 +8,13 @@ x-app-env: &app-env
   DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-pdm_backend}?sslmode=disable
   JWT_SECRET: ${JWT_SECRET:-dev_only_secret_at_least_32_characters_long}
   ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
+  # Points at the "rabbitmq" service below, same reasoning as DATABASE_URL.
+  RABBIT_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
+  SMTP_HOST: ${SMTP_HOST:-localhost}
+  SMTP_PORT: ${SMTP_PORT:-1025}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-noreply@localhost}
 
 services:
   db:
@@ -27,6 +34,24 @@ services:
       timeout: 5s
       retries: 10
 
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      # Management UI, http://localhost:15672 (same credentials as above).
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - pdm-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   app:
     build: .
     restart: unless-stopped
@@ -36,6 +61,27 @@ services:
       - "8080:8080"
     depends_on:
       db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # Consumes the email queue declared by the app/emailworker on startup and
+  # sends the transaction emails; see cmd/emailworker. Needs Postgres itself
+  # (GetTransactionEmailTargets) as well as the broker.
+  emailworker:
+    build: .
+    entrypoint: ["./emailworker"]
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+    # The image's HEALTHCHECK pings the server's HTTP /api/health, which this
+    # entrypoint never serves.
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   # One-off: `docker compose run --rm migrate` (not started by `up`).
@@ -51,3 +97,4 @@ services:
 
 volumes:
   pdm-db-data:
+  pdm-rabbitmq-data:
