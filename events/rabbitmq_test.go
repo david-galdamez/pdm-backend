@@ -472,6 +472,13 @@ func drain(t *testing.T, url, queue string) {
 func freshQueues(t *testing.T, url string) {
 	t.Helper()
 
+	// The queues must exist before they can be purged. On a brand-new broker
+	// (a fresh CI service container, nobody having dialled it yet) nothing
+	// has declared them, and QueuePurge 404s instead of finding them empty.
+	if err := DeclareTopology(channelTo(t, url)); err != nil {
+		t.Fatalf("declaring topology: %v", err)
+	}
+
 	purge := func() {
 		drain(t, url, EmailTransactionQueue)
 		drain(t, url, EmailTransactionDeadQueue)
